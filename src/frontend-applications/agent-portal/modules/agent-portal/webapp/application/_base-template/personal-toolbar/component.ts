@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -45,11 +45,8 @@ class Component {
             this.state.showTicketActions = true;
             this.initTicketActions();
 
-            EventService.getInstance().subscribe(ApplicationEvent.OBJECT_UPDATED, this.subscriber);
-            EventService.getInstance().subscribe(ApplicationEvent.OBJECT_CREATED, this.subscriber);
+            EventService.getInstance().subscribe(ApplicationEvent.REFRESH_TOOLBAR, this.subscriber);
         }
-
-        EventService.getInstance().subscribe(ApplicationEvent.REFRESH_TOOLBAR, this.subscriber);
 
         window.addEventListener('resize', this.resizeHandling.bind(this), false);
         this.resizeHandling();
@@ -70,8 +67,10 @@ class Component {
     }
 
     private async initTicketActions(): Promise<void> {
-        const user = await AgentService.getInstance().getCurrentUser(true);
-        this.state.ownedTicketsCount = user.Tickets.Owned.length;
+        const counter = await AgentService.getInstance().getCounter();
+        const ticketCounter = counter?.Ticket;
+
+        this.state.ownedTicketsCount = ticketCounter?.Owned || 0;
 
         this.state.translations = await TranslationService.createTranslationObject([
             'Translatable#Personal Kanban Board', 'Translatable#Personal Ticket Calendar'
@@ -98,29 +97,29 @@ class Component {
             const group3 = [];
 
             group1.push(new ToolbarAction(
-                'kix-icon-man', myTicketsNewArticles, true, user.Tickets.OwnedAndUnseen.length, actionId,
-                user.Tickets.OwnedAndUnseen.map((id) => Number(id))
+                'kix-icon-man', myTicketsNewArticles, true, ticketCounter?.OwnedAndUnseen || 0, actionId,
+                'OwnedAndUnseen'
             ));
             group1.push(new ToolbarAction(
-                'kix-icon-man', myTickets, false, user.Tickets.Owned.length, actionId, user.Tickets.Owned
+                'kix-icon-man', myTickets, false, ticketCounter?.Owned || 0, actionId, 'Owned'
             ));
 
             group2.push(new ToolbarAction(
-                'kix-icon-eye', myWatchedTicketsNewArticles, true, user.Tickets.WatchedAndUnseen.length,
-                actionId, user.Tickets.WatchedAndUnseen.map((id) => Number(id))
+                'kix-icon-eye', myWatchedTicketsNewArticles, true, ticketCounter?.WatchedAndUnseen || 0,
+                actionId, 'WatchedAndUnseen'
             ));
             group2.push(new ToolbarAction(
-                'kix-icon-eye', myWatchedTickets, false, user.Tickets.Watched.length, actionId,
-                user.Tickets.Watched.map((id) => Number(id))
+                'kix-icon-eye', myWatchedTickets, false, ticketCounter?.Watched || 0, actionId,
+                'Watched'
             ));
 
             group3.push(new ToolbarAction(
-                'kix-icon-lock-close', myLockedTicketsNewArticles, true, user.Tickets.OwnedAndLockedAndUnseen.length,
-                actionId, user.Tickets.OwnedAndLockedAndUnseen.map((id) => Number(id))
+                'kix-icon-lock-close', myLockedTicketsNewArticles, true, ticketCounter?.OwnedAndLockedAndUnseen || 0,
+                actionId, 'OwnedAndLockedAndUnseen'
             ));
             group3.push(new ToolbarAction(
-                'kix-icon-lock-close', myLockedTickets, false, user.Tickets.OwnedAndLocked.length, actionId,
-                user.Tickets.OwnedAndLocked.map((id) => Number(id))
+                'kix-icon-lock-close', myLockedTickets, false, ticketCounter?.OwnedAndLocked || 0, actionId,
+                'OwnedAndLocked'
             ));
             ContextService.getInstance().registerToolbarActions([...group1, ...group2, ...group3]);
             this.state.toolbarGroups = [group1, group2, group3];

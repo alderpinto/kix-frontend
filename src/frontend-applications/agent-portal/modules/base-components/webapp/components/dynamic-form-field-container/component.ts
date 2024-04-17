@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -29,9 +29,12 @@ class Component {
     private additionalOptionsTimeout: any;
     private timoutTimer: TimeoutTimer;
 
+    private hintTimeoutTimer: TimeoutTimer;
+
     public onCreate(): void {
         this.state = new ComponentState();
         this.timoutTimer = new TimeoutTimer();
+        this.hintTimeoutTimer = new TimeoutTimer();
     }
 
     public onInput(input: any): void {
@@ -68,6 +71,8 @@ class Component {
                 }
 
                 existingValue.required = cv.required;
+                existingValue.value.valid = cv.valid;
+                existingValue.value.validErrorMessages = cv.validErrorMessages;
             } else {
                 const value = new DynamicFormFieldValue(this.manager, cv, cv.id);
                 await value.init();
@@ -83,8 +88,18 @@ class Component {
 
         await this.addEmptyValue();
 
+        let removeInstanceIds = [];
         if (this.manager.uniqueProperties) {
-            this.state.dynamicValues.forEach((dv) => dv.updateProperties());
+            const updatePromises = [];
+            this.state.dynamicValues.forEach((dv) => updatePromises.push(dv.updateProperties()));
+            removeInstanceIds = await Promise.all(updatePromises);
+        }
+
+        const toRemove = this.state.dynamicValues.filter(
+            (dv) => removeInstanceIds.some((ri) => ri === dv.instanceId)
+        );
+        if (toRemove.length) {
+            toRemove.forEach((p) => this.removeValue(p, false));
         }
 
         (this as any).setStateDirty('dynamicValues');
@@ -107,7 +122,8 @@ class Component {
                     this.manager,
                     new ObjectPropertyValue(
                         v.property, v.operator, v.value, v.options, v.required, v.valid,
-                        v.objectType, v.readonly, v.changeable, v.id, v.additionalOptions
+                        v.objectType, v.readonly, v.changeable, v.id, v.additionalOptions,
+                        v.validErrorMessages, v.hint
                     ),
                     v.id
                 );
@@ -269,10 +285,12 @@ class Component {
         }
     }
 
-    public async removeValue(value: DynamicFormFieldValue): Promise<void> {
+    public async removeValue(value: DynamicFormFieldValue, updateValues: boolean = true): Promise<void> {
         this.state.dynamicValues = this.state.dynamicValues.filter((dv) => dv.instanceId !== value.instanceId);
         await this.manager.removeValue(value.getValue());
-        await this.updateValues();
+        if (updateValues) {
+            await this.updateValues();
+        }
     }
 
     private async addEmptyValue(): Promise<void> {
@@ -435,6 +453,14 @@ class Component {
 
             (this as any).setStateDirty('dynamicValues');
         }
+    }
+
+    public hintValueChanged(value: DynamicFormFieldValue, event: any): void {
+        this.timoutTimer.restartTimer(() => {
+            const hint = event.target.value;
+            value.value.hint = hint;
+            this.provideValue(value);
+        }, 500);
     }
 
 }

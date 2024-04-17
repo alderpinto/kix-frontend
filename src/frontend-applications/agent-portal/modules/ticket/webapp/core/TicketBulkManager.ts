@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -30,6 +30,7 @@ import { ObjectReferenceOptions } from '../../../base-components/webapp/core/Obj
 import { DateTimeUtil } from '../../../base-components/webapp/core/DateTimeUtil';
 import { ValidationResult } from '../../../base-components/webapp/core/ValidationResult';
 import { ValidationSeverity } from '../../../base-components/webapp/core/ValidationSeverity';
+import { TranslationService } from '../../../translation/webapp/core/TranslationService';
 
 export class TicketBulkManager extends BulkManager {
 
@@ -221,11 +222,14 @@ export class TicketBulkManager extends BulkManager {
                 );
                 break;
             case TicketProperty.QUEUE_ID:
-                const queuesHierarchy = await QueueService.getInstance().getQueuesHierarchy(false, null, ['WRITE']);
+                const queuesHierarchy = await QueueService.getInstance().getQueuesHierarchy(false, null, ['CREATE']);
                 nodes = await QueueService.getInstance().prepareObjectTree(queuesHierarchy);
                 break;
             default:
                 nodes = await TicketService.getInstance().getTreeNodes(property);
+                for (const node of nodes) {
+                    node.label = await TranslationService.translate(node.label);
+                }
         }
         return nodes;
     }
@@ -311,40 +315,45 @@ export class TicketBulkManager extends BulkManager {
     public async validate(): Promise<ValidationResult[]> {
         const validationResult = await super.validate();
 
-        const result = [];
+        const results = [];
         const pendingValue = this.values.find((v) => v.property === TicketProperty.PENDING_TIME);
         if (pendingValue) {
             if (pendingValue.value) {
                 const pendingDate = new Date(pendingValue.value);
                 if (isNaN(pendingDate.getTime())) {
-                    result.push(
+                    results.push(
                         new ValidationResult(
                             ValidationSeverity.ERROR, 'Translatable#Pending Time has invalid date!'
                         )
                     );
                 } else if (pendingDate < new Date()) {
-                    result.push(
+                    results.push(
                         new ValidationResult(
                             ValidationSeverity.ERROR, 'Translatable#Pending Time has to be in future!'
                         )
                     );
                 }
             } else {
-                result.push(
+                results.push(
                     new ValidationResult(ValidationSeverity.ERROR, 'Translatable#Pending Time is required!')
                 );
             }
 
-            pendingValue.valid = !result.some((r) => r.severity === ValidationSeverity.ERROR);
+            pendingValue.valid = !results.some((r) => r.severity === ValidationSeverity.ERROR);
+            results.forEach((r) => {
+                if (r.severity === ValidationSeverity.ERROR) {
+                    pendingValue.validErrorMessages.push(r.message);
+                }
+            });
         }
 
-        validationResult.push(...result);
+        validationResult.push(...results);
         return validationResult;
     }
 
     public async prepareLoadingOptions(
         value: ObjectPropertyValue, loadingOptions: KIXObjectLoadingOptions
-    ): Promise<void> {
+    ): Promise<KIXObjectLoadingOptions> {
         if (value.property === TicketProperty.OWNER_ID || TicketProperty.RESPONSIBLE_ID) {
 
             const queueValue = this.getValues()?.find((v) => v.property === TicketProperty.QUEUE_ID);
@@ -368,6 +377,7 @@ export class TicketBulkManager extends BulkManager {
                 loadingOptions.query = [];
             }
         }
+        return loadingOptions;
     }
 
 }

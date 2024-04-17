@@ -3,8 +3,8 @@ msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2019-05-07 09:05+0000\n"
-"PO-Revision-Date: 2023-03-08 19:19+0000\n"
-"Last-Translator: fkrahl <Frank.Krahl@cape-it.de>\n"
+"PO-Revision-Date: 2024-01-31 17:37+0000\n"
+"Last-Translator: tto <Torsten.Thau@kixdesk.com>\n"
 "Language-Team: English <http://weblate.vm.devel.cape-it.de/projects/kix18/"
 "frontend-app/en/>\n"
 "Language: en\n"
@@ -232,7 +232,7 @@ msgid "All agents watching this ticket"
 msgstr ""
 
 msgid "All agents with read permissions for the ticket"
-msgstr ""
+msgstr "All agents with read-only permission for the ticket"
 
 msgid "All agents with update permission for the ticket"
 msgstr ""
@@ -247,6 +247,9 @@ msgid "All Objects"
 msgstr ""
 
 msgid "All open tabs will be closed. Continue?"
+msgstr ""
+
+msgid "Allow access to admin module"
 msgstr ""
 
 msgid "All tickets"
@@ -289,10 +292,13 @@ msgstr ""
 msgid "Apply"
 msgstr ""
 
+msgid "Apply Table"
+msgstr ""
+
 msgid "Approved"
 msgstr ""
 
-msgid "A product by c.a.p.e. IT GmbH"
+msgid "A product by KIX Service Software GmbH"
 msgstr ""
 
 msgid "Archived"
@@ -418,6 +424,9 @@ msgstr ""
 msgid "Avatar"
 msgstr ""
 
+msgid "A year after 2200 is not possible."
+msgstr ""
+
 msgid "Backend"
 msgstr ""
 
@@ -485,9 +494,12 @@ msgid "Changed by"
 msgstr ""
 
 msgid "Change Password"
-msgstr ""
+msgstr "Change Password"
 
 msgid "Changes cannot be saved. How do you want to proceed?"
+msgstr ""
+
+msgid "Change sort direction"
 msgstr ""
 
 msgid "Changes saved."
@@ -865,6 +877,9 @@ msgstr ""
 msgid "Default"
 msgstr ""
 
+msgid "Default Queue (SysConfig)"
+msgstr ""
+
 msgid "Default Value"
 msgstr ""
 
@@ -1101,6 +1116,21 @@ msgstr ""
 msgid "Email"
 msgstr ""
 
+msgid "Email1"
+msgstr ""
+
+msgid "Email2"
+msgstr ""
+
+msgid "Email3"
+msgstr ""
+
+msgid "Email4"
+msgstr ""
+
+msgid "Email5"
+msgstr ""
+
 msgid "Email Account"
 msgstr ""
 
@@ -1113,7 +1143,16 @@ msgstr ""
 msgid "Email Address Details"
 msgstr ""
 
+msgid "Email Address Domain"
+msgstr ""
+
 msgid "Email Addresses"
+msgstr ""
+
+msgid "Email could not be sent"
+msgstr ""
+
+msgid "Email Error"
 msgstr ""
 
 msgid "Email Filter"
@@ -1251,6 +1290,9 @@ msgstr ""
 msgid "FAQ Article History"
 msgstr ""
 
+msgid "FAQ Articles successfully removed."
+msgstr ""
+
 msgid "FAQ Attributes"
 msgstr ""
 
@@ -1308,6 +1350,12 @@ msgstr ""
 msgid "Field {0} has an invalid value ({1})."
 msgstr ""
 
+msgid "Field {0} has an invalid value (max date: {1})."
+msgstr ""
+
+msgid "Field {0} has an invalid value (min date: {2})."
+msgstr ""
+
 msgid "Field Agent App"
 msgstr ""
 
@@ -1324,6 +1372,9 @@ msgid "<< Field Options:"
 msgstr ""
 
 msgid "Field Type"
+msgstr ""
+
+msgid "File Upload"
 msgstr ""
 
 msgid "Filter"
@@ -1403,7 +1454,7 @@ msgid "FQDN"
 msgstr ""
 
 msgid "Friday"
-msgstr ""
+msgstr "Freitag"
 
 msgid "From"
 msgstr ""
@@ -1596,6 +1647,9 @@ msgid "Helptext_Admin_MailAccountCreate_Dispachting"
 msgstr ""
 "Choose the team, which is supposed to receive incoming emails from this "
 "account. It is defined within the SysConfig which team is set as “default”."
+
+msgid "Helptext_Admin_MailAccountCreate_Dispatching_Queue"
+msgstr ""
 
 msgid "Helptext_Admin_MailAccountCreate_Host"
 msgstr "Insert the host name, holding the account. Example: mail.example.com"
@@ -1934,6 +1988,9 @@ msgstr ""
 "kg.com” To connect answers to this email address with already existing "
 "tickets, this address needs to match with a mail account, configured in KIX."
 
+msgid "Helptext_Admin_SystemAddressCreate_Queue"
+msgstr ""
+
 msgid "Helptext_Admin_SystemAddressCreate_Validity"
 msgstr "The email address can only be used within the system if set “valid”."
 
@@ -2056,6 +2113,9 @@ msgid "Helptext_Admin_TranslationSearch"
 msgstr ""
 "Searchable are properties of the colum \"Pattern\". If only a part of a name "
 "is inserted it must be put in * (Wildcard-Search)."
+
+msgid "Helptext_Admin_Users_RoleCreate_AllowAdminModule"
+msgstr ""
 
 msgid "Helptext_Admin_Users_RoleCreate_Comment"
 msgstr ""
@@ -2426,6 +2486,9 @@ msgstr ""
 "names. The variable can be used as special placeholder in following actions "
 "like \"${VariableName}\"."
 
+msgid "Helptext_Organisation_Address_Domain_Pattern"
+msgstr ""
+
 msgid "Helptext_PersonalSettings_Always_close_dialog_tab_without_asking_Hint"
 msgstr ""
 
@@ -2647,6 +2710,9 @@ msgstr ""
 "contact is not yet known, you may create this contact or just enter a "
 "syntactically correct email address."
 
+msgid "Helptext_Tickets_TicketCreate_CustomerVisible"
+msgstr "Defines whether this article is shown in the customer portal."
+
 msgid "Helptext_Tickets_TicketCreate_Organisation"
 msgstr ""
 "Organisation is assigned autoamtically depending on the chosen contact."
@@ -2666,7 +2732,7 @@ msgid "Helptext_Tickets_TicketCreate_State"
 msgstr ""
 
 msgid "Helptext_Tickets_TicketCreate_Type"
-msgstr ""
+msgstr "The ticket type is used to categorise the type of request."
 
 msgid "Helptext_Tickets_TicketEdit_AffectedAsset"
 msgstr ""
@@ -2751,6 +2817,9 @@ msgstr ""
 
 msgid "HelptImporConfigext_Import_File"
 msgstr ""
+"The file must contain columns labeled with \"ServiceID\",\"SLA\","
+"\"Organisation (Number)\",\"Type\",\"Priority\",\"Contact\", \"Validity\" "
+"for value mapping."
 
 msgid "Hide"
 msgstr ""
@@ -2771,7 +2840,7 @@ msgid "Host"
 msgstr ""
 
 msgid "Hour(s)"
-msgstr ""
+msgstr "Stunde(n)"
 
 msgid "Icon"
 msgstr ""
@@ -2840,6 +2909,9 @@ msgid "Incident state"
 msgstr ""
 
 msgid "Incident State"
+msgstr ""
+
+msgid "Include Previous Version"
 msgstr ""
 
 msgid "Include this code into the <head> area of your webpage."
@@ -2958,6 +3030,9 @@ msgstr ""
 msgid "Last Name"
 msgstr ""
 
+msgid "Latest releases"
+msgstr ""
+
 msgid "Layer"
 msgstr ""
 
@@ -2973,8 +3048,8 @@ msgstr ""
 msgid "Lets go"
 msgstr ""
 
-msgid "Limit:"
-msgstr "Limit (Search Results):"
+msgid "Library"
+msgstr ""
 
 msgid "link {0}"
 msgstr "Link {0}"
@@ -3285,6 +3360,9 @@ msgstr ""
 msgid "New Ticket"
 msgstr ""
 
+msgid "New Tickets"
+msgstr ""
+
 msgid "New Tickets Chart"
 msgstr ""
 
@@ -3354,6 +3432,9 @@ msgstr ""
 msgid "No data available."
 msgstr ""
 
+msgid "No form available. Please contact your administrator."
+msgstr ""
+
 msgid "No objects available."
 msgstr ""
 
@@ -3370,6 +3451,9 @@ msgid "No report available"
 msgstr ""
 
 msgid "Not available (not any more or not yet)"
+msgstr ""
+
+msgid "not contained in"
 msgstr ""
 
 msgid "Note"
@@ -3882,6 +3966,9 @@ msgstr ""
 msgid "Recently Closed"
 msgstr ""
 
+msgid "recipient addresses (To, Cc, etc.)"
+msgstr ""
+
 msgid "Recipients"
 msgstr ""
 
@@ -3937,6 +4024,12 @@ msgid "Remove Address"
 msgstr "Remove Adress(es)"
 
 msgid "Remove dependency to organisation"
+msgstr ""
+
+msgid "Remove FAQ Article(s)"
+msgstr ""
+
+msgid "Remove FAQ Articles"
 msgstr ""
 
 msgid "Remove FAQ Categories"
@@ -4036,6 +4129,9 @@ msgid "Required field {0} has no value."
 msgstr ""
 
 msgid "Required field {0} is no JSON."
+msgstr ""
+
+msgid "Required field has no value."
 msgstr ""
 
 msgid "Reset"
@@ -4170,6 +4266,9 @@ msgstr ""
 msgid "Search Limit"
 msgstr ""
 
+msgid "Search menu"
+msgstr ""
+
 msgid "SEARCH_OPERATOR_WITHIN_LAST"
 msgstr "the last"
 
@@ -4201,6 +4300,9 @@ msgid "Second number value is not an integer."
 msgstr ""
 
 msgid "Seconds(s)"
+msgstr ""
+
+msgid "Select"
 msgstr ""
 
 msgid "Select all"
@@ -4301,7 +4403,7 @@ msgstr ""
 msgid "setup_assistant_system_settings_text"
 msgstr ""
 "Please add basic system settings according to your system setup. For kix."
-"cloud users please check your notification email.  For on-premise-"
+"cloud users please check your notification email. For on-premise-"
 "installations: frontend refers to FQDN+port where the agent portal may be "
 "reached (e.g. \"your.docker.host:20001\"). Backend refers to FQDN+port where "
 "the KIX REST-API can be reached (e.g. \"your.docker.host:20000\"). Customer "
@@ -5090,6 +5192,9 @@ msgstr ""
 msgid "ZIP"
 msgstr ""
 
+#~ msgid "Limit:"
+#~ msgstr "Limit (Search Results):"
+
 #~ msgid "Helptext_Tickets_ArticleCreate_Attachments"
 #~ msgstr ""
 #~ "Choose if you want to save the ticket description only internally (Note) "
@@ -5133,13 +5238,6 @@ msgstr ""
 #~ msgstr ""
 #~ "Describe the ticket concern. If you chose “Email” as channel, this is the "
 #~ "text the recipient(s) will receive."
-
-#~ msgid "Helptext_Tickets_TicketCreate_CustomerVisible"
-#~ msgstr ""
-#~ "Choose if the following article should be visible in the Self Service "
-#~ "Portal. If \"Email\" is choosen as chanal above, and one of the following "
-#~ "form fields (To, Cc, Bcc) contains an adresss conected to the ticket's "
-#~ "customer, the checkbox will be set automatically and cannot be removed."
 
 #~ msgid "Helptext_Tickets_TicketCreate_Subject"
 #~ msgstr "Briefly summarize the ticket topic."

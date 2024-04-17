@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -58,6 +58,10 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
     protected initialized: boolean = false;
     protected selectedNodes: TreeNode[] = [];
 
+    private prepareSelectableController: AbortController;
+
+    protected loadObjectsSeparately: boolean;
+
     public constructor(
         public property: string,
         object: any,
@@ -73,13 +77,6 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
             new FormValueBinding(this, 'selectedNodes', object, property),
             new FormValueBinding(this, 'multiselect', object, property),
         );
-
-        this.addPropertyBinding(FormValueProperty.POSSIBLE_VALUES, (value: SelectObjectFormValue) => {
-            if (this.isAutoComplete && this.possibleValues?.length) {
-                this.isAutoComplete = false;
-                this.loadSelectableValues();
-            }
-        });
     }
 
     public destroy(): void {
@@ -139,7 +136,7 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
 
         await super.setFormValue(value, force);
 
-        if (!this.readonly) {
+        if (!this.readonly || force) {
             await this.loadSelectedValues();
         }
     }
@@ -188,6 +185,13 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
 
         await this.loadSelectableValues();
         await this.loadSelectedValues();
+
+        this.addPropertyBinding(FormValueProperty.POSSIBLE_VALUES, (value: SelectObjectFormValue) => {
+            if (this.isAutoComplete && this.possibleValues?.length) {
+                this.isAutoComplete = false;
+            }
+            this.loadSelectableValues();
+        });
 
         this.addPropertyBinding('multiselect', (value: SelectObjectFormValue) => {
             if (!this.multiselect && Array.isArray(this.value) && this.value.length > 1) {
@@ -333,36 +337,46 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
         TreeService.getInstance().registerTreeHandler(this.instanceId, this.treeHandler);
 
         this.treeHandler?.registerSelectionListener(this.instanceId + '-selection', (nodes: TreeNode[]) => {
-            if (this.initialized) {
-                this.setSelectedNodes(nodes);
+            if (this.initialized && !this.multiselect) {
+                this.setSelectedNodes();
             }
         });
 
         await this.loadSelectableValues();
     }
 
-    protected async setSelectedNodes(nodes: TreeNode[] = []): Promise<void> {
-        const tree = this.treeHandler.getTree();
+    public async setSelectedNodes(): Promise<void> {
+        const tree = this.treeHandler?.getTree();
 
         const selectedNodes = this.treeHandler?.getSelection(this.treeHandler?.getTree()) || [];
         const selectedIds = selectedNodes.map((n: TreeNode) => n.id);
 
         const newValue = [];
-        if (Array.isArray(this.value)) {
-            for (const v of this.value) {
-                if (typeof v !== 'undefined' && v !== null) {
-                    if (TreeUtil.findNode(tree, v)) {
-                        if (selectedIds.some((id) => id.toString() === v.toString())) {
-                            newValue.push(v);
-                        }
-                    } else if (this.multiselect) {
+
+        const value = this.value !== undefined && this.value !== null
+            ? Array.isArray(this.value) ? this.value : [this.value]
+            : null;
+
+        if (!this.multiselect) {
+            if (selectedNodes.length) {
+                newValue.push(selectedNodes[0].id);
+            }
+        } else if (Array.isArray(value)) {
+            // keep current values
+            for (const v of value) {
+                // if not in current loaded tree keep it else check if still selected
+                if (typeof v !== 'undefined' && v !== null && TreeUtil.findNode(tree, v)) {
+                    const isSelected = selectedIds.some((id) => id.toString() === v.toString());
+                    if (isSelected) {
                         newValue.push(v);
                     }
+                } else {
+                    newValue.push(v);
                 }
             }
         }
 
-        for (const node of nodes) {
+        for (const node of selectedNodes) {
             if (!newValue.some((v) => v.toString() === node?.id?.toString())) {
                 newValue.push(node.id);
             }
@@ -401,39 +415,58 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
     }
 
     protected async prepareSelectableNodes(objects: KIXObject[]): Promise<void> {
-        let nodes: TreeNode[] = [];
-        if (Array.isArray(objects) && objects.length) {
-            if (this.structureOption) {
-                nodes = await KIXObjectService.prepareObjectTree(
-                    this.objectType, objects, this.showInvalidNodes,
-                    this.isInvalidClickable, null, this.translatable
-                );
-            } else {
-                const promises = [];
-                for (const o of objects) {
-                    promises.push(ObjectReferenceUtil.createTreeNode(
-                        o, this.showInvalidNodes, this.isInvalidClickable, this.useTextAsId, this.translatable
-                    ));
+        // prevent that possible slower prior prepare overwrites current prepare (see "setTree" below)
+        if (this.prepareSelectableController) {
+            this.prepareSelectableController.abort();
+        }
+        const controller = new AbortController();
+        this.prepareSelectableController = controller;
+
+        await new Promise<void>(async (resolve) => {
+            let nodes: TreeNode[] = [];
+            if (Array.isArray(objects) && objects.length) {
+                if (this.structureOption) {
+                    nodes = await KIXObjectService.prepareObjectTree(
+                        this.objectType, objects, this.showInvalidNodes,
+                        this.isInvalidClickable, null, this.translatable
+                    );
+                } else {
+                    const promises = [];
+                    for (const o of objects) {
+                        promises.push(ObjectReferenceUtil.createTreeNode(
+                            o, this.showInvalidNodes, this.isInvalidClickable, this.useTextAsId, this.translatable
+                        ));
+                    }
+
+                    nodes = await Promise.all<TreeNode>(promises);
+                    nodes.filter((n) => n instanceof TreeNode);
                 }
 
-                nodes = await Promise.all<TreeNode>(promises);
-                nodes.filter((n) => n instanceof TreeNode);
+                nodes = nodes.filter((node, index) => nodes.findIndex((n) => n.id === node.id) === index);
+                SortUtil.sortObjects(nodes, 'label', DataType.STRING);
             }
 
-            nodes = nodes.filter((node, index) => nodes.findIndex((n) => n.id === node.id) === index);
-            SortUtil.sortObjects(nodes, 'label', DataType.STRING);
-        }
+            const value = this.value !== undefined && this.value !== null
+                ? Array.isArray(this.value) ? this.value : [this.value]
+                : null;
 
-        if (Array.isArray(this.value)) {
-            for (const v of this.value) {
-                const node = TreeUtil.findNode(nodes, v);
-                if (node) {
-                    node.selected = true;
+            if (Array.isArray(value)) {
+                for (const v of value) {
+                    const node = TreeUtil.findNode(nodes, v);
+                    if (node) {
+                        node.selected = true;
+                    }
                 }
             }
-        }
 
-        this.treeHandler?.setTree(nodes, undefined, false, true);
+            // do not set tree if aborted - no need for "old" value
+            if (!controller.signal.aborted) {
+                this.treeHandler?.setTree(nodes, undefined, true, true);
+            }
+            resolve();
+        });
+
+        this.prepareSelectableController = null;
     }
 
     public async search(searchValue: string): Promise<void> {
@@ -455,7 +488,7 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
             const service = ServiceRegistry.getServiceInstance<IKIXObjectService>(this.objectType);
             const filter = service && this.searchValue
                 ? await service.prepareFullTextFilter(this.searchValue)
-                : null;
+                : [];
 
             let loadingOptions = new KIXObjectLoadingOptions();
 
@@ -463,6 +496,7 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
             loadingOptions.filter.push(...filter);
 
             loadingOptions.limit = this.autoCompleteConfiguration?.limit;
+            loadingOptions.searchLimit = this.autoCompleteConfiguration?.limit;
 
             loadingOptions.includes = this.loadingOptions?.includes;
             loadingOptions.expands = this.loadingOptions?.expands;
@@ -471,9 +505,12 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
 
             loadingOptions = await ObjectReferenceUtil.prepareLoadingOptions(loadingOptions, this.searchValue);
 
-            objects = await service.loadObjects<KIXObject>(
-                this.objectType, null, loadingOptions, this.specificLoadingOptions, false
-            );
+            if (service) {
+                objects = await KIXObjectService.loadObjects<KIXObject>(
+                    this.objectType, null, loadingOptions, this.specificLoadingOptions, false,
+                    true, undefined, this.instanceId
+                ).catch(() => []);
+            }
         }
 
         return objects;
@@ -501,8 +538,14 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
             objectIds = objectIds.filter((id) => id !== null && typeof id !== 'undefined');
 
             if (Array.isArray(this.possibleValues)) {
+                const allowedValues = this.possibleValues;
+
+                if (this.additionalValues?.length) {
+                    allowedValues.push(...this.additionalValues);
+                }
+
                 objectIds = objectIds.filter(
-                    (id) => this.possibleValues.some((pv) => pv.toString() === id.toString())
+                    (id) => allowedValues.some((pv) => pv.toString() === id.toString())
                 );
             }
 
@@ -513,38 +556,7 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
                     : objectIds.filter((id) => !id.toString().match(/<KIX_.+>/))
                 : [];
             if (idsToLoad.length) {
-                if (this.isAutoComplete) {
-                    const objects = await KIXObjectService.loadObjects(
-                        this.objectType, idsToLoad as any[], this.loadingOptions,
-                        this.specificLoadingOptions, true, null, true
-                    ).catch(() => []);
-
-                    for (const object of objects) {
-                        const node = await ObjectReferenceUtil.createTreeNode(
-                            object, this.showInvalidNodes, this.isInvalidClickable, this.useTextAsId,
-                            this.translatable
-                        );
-                        if (node) {
-                            node.selected = true;
-                            selectedNodes.push(node);
-                        }
-                    }
-                } else {
-                    const objects = await KIXObjectService.loadObjects(
-                        this.objectType, idsToLoad as any[], null, null, true, null, true
-                    ).catch(() => []);
-                    if (objects && !!objects.length) {
-                        for (const object of objects) {
-                            const node = await ObjectReferenceUtil.createTreeNode(
-                                object, this.translatable, this.isInvalidClickable, this.useTextAsId, this.translatable
-                            );
-                            if (node) {
-                                node.selected = true;
-                                selectedNodes.push(node);
-                            }
-                        }
-                    }
-                }
+                selectedNodes = await this.loadNodes(idsToLoad);
             }
 
             if (this.freeText || idsToLoad.length !== objectIds.length) {
@@ -563,6 +575,83 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
         }
 
         this.selectedNodes = selectedNodes.sort((a, b) => a.id - b.id);
+    }
+
+    private async loadNodes(idsToLoad: T[]): Promise<TreeNode[]> {
+        const selectedNodes: TreeNode[] = [];
+        if (this.isAutoComplete) {
+            let objects = [];
+            if (this.loadObjectsSeparately) {
+                objects = await this.getObjectsSeparately(idsToLoad);
+            } else {
+                objects = await KIXObjectService.loadObjects(
+                    this.objectType, idsToLoad as any[], this.loadingOptions,
+                    this.specificLoadingOptions, true, null, true
+                ).catch(() => []);
+            }
+
+            for (const object of objects) {
+                const node = await ObjectReferenceUtil.createTreeNode(
+                    object, this.showInvalidNodes, this.isInvalidClickable, this.useTextAsId,
+                    this.translatable
+                );
+                if (node) {
+                    node.selected = true;
+                    selectedNodes.push(node);
+                }
+            }
+        } else {
+            let objects = [];
+            if (this.loadObjectsSeparately) {
+                objects = await this.getObjectsSeparately(idsToLoad);
+            } else {
+                objects = await KIXObjectService.loadObjects(
+                    this.objectType, idsToLoad as any[], null, null, true, null, true
+                ).catch(() => []);
+            }
+
+            if (objects && !!objects.length) {
+                for (const object of objects) {
+                    const node = await ObjectReferenceUtil.createTreeNode(
+                        object, this.translatable, this.isInvalidClickable, this.useTextAsId, this.translatable
+                    );
+                    if (node) {
+                        node.selected = true;
+                        selectedNodes.push(node);
+                    }
+                }
+            }
+        }
+        return selectedNodes;
+    }
+
+    private async getObjectsSeparately(ids: any[]): Promise<KIXObject[]> {
+        const objectPromises = [];
+        if (ids) {
+            if (!Array.isArray(ids)) {
+                ids = [ids];
+            }
+
+            // load objects separately, to prevent empty value if "no permission" error occurs
+            ids.forEach(async (id) =>
+                objectPromises.push(
+                    KIXObjectService.loadObjects(
+                        this.objectType, [id], this.loadingOptions,
+                        this.specificLoadingOptions, true, null, true
+                    ).catch(() => [])
+                )
+            );
+        }
+
+        const objects = [];
+        await Promise.allSettled<Array<KIXObject[]>>(objectPromises).then((results) =>
+            results.forEach((r) => {
+                if (r.status === 'fulfilled' && r.value?.length) {
+                    objects.push(...r.value);
+                }
+            })
+        );
+        return objects;
     }
 
     public async removeValue(value: string | number): Promise<void> {
@@ -592,19 +681,8 @@ export class SelectObjectFormValue<T = Array<string | number>> extends ObjectFor
         this.treeHandler?.selectAll();
     }
 
-    public async setPossibleValues(values: T[]): Promise<void> {
-        await super.setPossibleValues(values);
+    public async update(): Promise<void> {
         await this.loadSelectableValues();
-        await this.setSelectedNodes();
-    }
-
-    public async addPossibleValues(values: T[]): Promise<void> {
-        await super.addPossibleValues(values);
-        this.loadSelectableValues();
-    }
-
-    public async removePossibleValues(values: T[]): Promise<void> {
-        await super.removePossibleValues(values);
-        await this.loadSelectableValues();
+        await this.loadSelectedValues();
     }
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -37,7 +37,7 @@ export class AdminContext extends Context {
     }
 
     public async update(urlParams: URLSearchParams): Promise<void> {
-        TableFactoryService.getInstance().deleteContextTables(AdminContext.CONTEXT_ID);
+        TableFactoryService.getInstance().deleteContextTables(AdminContext.CONTEXT_ID, null, true);
         this.handleURLParams(urlParams);
     }
 
@@ -71,7 +71,7 @@ export class AdminContext extends Context {
     public async setAdminModule(adminModuleId: string, history: boolean = true): Promise<void> {
         if (!this.adminModuleId || this.adminModuleId !== adminModuleId) {
 
-            TableFactoryService.getInstance().deleteContextTables(AdminContext.CONTEXT_ID);
+            TableFactoryService.getInstance().deleteContextTables(AdminContext.CONTEXT_ID, undefined, true);
 
             this.adminModuleId = adminModuleId;
             this.filterValue = null;

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -20,6 +20,10 @@ import { SortUtil } from '../../../../model/SortUtil';
 import { KIXObjectType } from '../../../../model/kix/KIXObjectType';
 import { SystemAddress } from '../../../system-address/model/SystemAddress';
 import { KIXObjectService } from '../../../base-components/webapp/core/KIXObjectService';
+import { TicketService } from './TicketService';
+import { BrowserUtil } from '../../../base-components/webapp/core/BrowserUtil';
+import { SysConfigOption } from '../../../sysconfig/model/SysConfigOption';
+import { SysConfigKey } from '../../../sysconfig/model/SysConfigKey';
 
 export class ArticlePlaceholderHandler extends AbstractPlaceholderHandler {
 
@@ -44,7 +48,9 @@ export class ArticlePlaceholderHandler extends AbstractPlaceholderHandler {
         this.extendedPlaceholderHandler.push(handler);
     }
 
-    public async replace(placeholder: string, article: Article, language?: string): Promise<string> {
+    public async replace(
+        placeholder: string, article: Article, language?: string, forRichtext?: boolean
+    ): Promise<string> {
         let result = '';
         if (article) {
             const attribute: string = PlaceholderService.getInstance().getAttributeString(placeholder);
@@ -75,12 +81,22 @@ export class ArticlePlaceholderHandler extends AbstractPlaceholderHandler {
                     case ArticleProperty.SUBJECT:
                     case ArticleProperty.BODY:
                         result = await LabelService.getInstance().getDisplayText(article, attribute, undefined, false);
-                        if (optionsString && Number.isInteger(Number(optionsString))) {
-                            result = result.substr(0, Number(optionsString));
+                        if (optionsString && !isNaN(Number(optionsString))) {
+                            result = result.slice(0, Number(optionsString) - 1);
                         }
                         break;
                     case ArticleProperty.BODY_RICHTEXT:
+                        const prepareContent = await TicketService.getInstance().getPreparedArticleBodyContent(article);
+                        result = await this.reduceContent(prepareContent[0] || article.Body, optionsString);
+                        if (prepareContent && prepareContent[1]) {
+                            result = BrowserUtil.replaceInlineContent(result, prepareContent[1]);
+                        }
+                        break;
                     case ArticleProperty.BODY_RICHTEXT_NO_INLINE:
+                        const prepareContentNoInline =
+                            await TicketService.getInstance().getPreparedArticleBodyContent(article, true);
+                        result = await this.reduceContent(prepareContentNoInline[0] || article.Body, optionsString);
+                        break;
                     case ArticleProperty.FROM_REALNAME:
                     case ArticleProperty.TO_REALNAME:
                     case ArticleProperty.CC_REALNAME:
@@ -94,6 +110,10 @@ export class ArticlePlaceholderHandler extends AbstractPlaceholderHandler {
                         result = await LabelService.getInstance().getDisplayText(
                             article, attribute, undefined, undefined, false
                         );
+                        if (forRichtext) {
+                            result = result.replace(/>/g, '&gt;');
+                            result = result.replace(/</g, '&lt;');
+                        }
                         break;
                     case 'REPLYRECIPIENT':
                         let replyProperty = ArticleProperty.FROM;
@@ -115,6 +135,10 @@ export class ArticlePlaceholderHandler extends AbstractPlaceholderHandler {
                                 article, ArticleProperty.TO, undefined, false
                             );
                         }
+                        if (forRichtext) {
+                            result = result.replace(/>/g, '&gt;');
+                            result = result.replace(/</g, '&lt;');
+                        }
                         break;
                     case KIXObjectProperty.CREATE_TIME:
                     case KIXObjectProperty.CHANGE_TIME:
@@ -131,6 +155,65 @@ export class ArticlePlaceholderHandler extends AbstractPlaceholderHandler {
             }
         }
         return result;
+    }
+
+    private async reduceContent(result: string, optionsString?: string): Promise<string> {
+        let linesCount = 0;
+        if (optionsString && !isNaN(Number(optionsString))) {
+            linesCount = Number(optionsString);
+        } else {
+            const defaultCount = await KIXObjectService.loadObjects<SysConfigOption>(
+                KIXObjectType.SYS_CONFIG_OPTION, [`${SysConfigKey.TICKET_PLACEHOLDER_BODYRICHTEXT_LINECOUNT}`],
+                null, null, true
+            ).catch(() => [] as SysConfigOption[]);
+            linesCount = defaultCount?.length ? Number(defaultCount[0].Value) : 0;
+        }
+
+        if (!isNaN(linesCount) && linesCount > 0) {
+            const lines = result.split(/\n/);
+
+            if (lines.length > linesCount) {
+                result = lines.slice(0, linesCount).join('\n');
+                result = this.closeTags(result);
+                result += '\n[...]';
+            }
+        }
+        return result;
+    }
+
+    private closeTags(body: string): string {
+
+        // get all opening and closing tag names but not self closing ones
+        // e.g. <div>, <p class...> but not <br /> or <img src... />
+        const ingoreTags = [
+            'area', 'base', 'br', 'col', 'command', 'embed', 'hr', 'img', 'input', 'keygen',
+            'link', 'meta', 'param', 'source', 'track', 'wbr'
+        ];
+        const startTags = (body.match(/(?:<([^!\s\/]+?)>|<([^!\s\/]+)\s+.+?\s*[^\/]>)/g) || [])
+            .map((tag) => tag.slice(1, -1))// remove < and >
+            .map((tag: string) => tag.replace(/(\w+).*/s, '$1'))
+            .filter((tag) => !ingoreTags.some((itag) => itag === tag));
+        const endTags = (body.match(/<\/(.+?)>/g) || [])
+            .map((tag) => tag.slice(2, -1)) // remove </ and >
+            .filter((tag) => !ingoreTags.some((itag) => itag === tag));
+
+        // rember only opening tags with no closing counterpart
+        if (endTags.length) {
+
+            // remove now closed tags (start with last opened - in to out)
+            startTags.reverse();
+            endTags.forEach((tag) => {
+                const index = startTags.findIndex((startTag) => startTag === tag);
+                if (index !== -1) {
+                    startTags.splice(index, 1);
+                }
+            });
+        }
+
+        // add closing tags if needed (start with last, still reversed)
+        startTags.forEach((tag) => body += `\n<\/${tag}>`);
+
+        return body;
     }
 
     private isKnownProperty(property: string): boolean {

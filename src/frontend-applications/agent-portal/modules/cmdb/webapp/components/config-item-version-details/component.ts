@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -14,7 +14,6 @@ import { Version } from '../../../model/Version';
 import { KIXObjectType } from '../../../../../model/kix/KIXObjectType';
 import { KIXObjectLoadingOptions } from '../../../../../model/KIXObjectLoadingOptions';
 import { VersionProperty } from '../../../model/VersionProperty';
-import { ConfigItemVersionLoadingOptions } from '../../../model/ConfigItemVersionLoadingOptions';
 import { PreparedData } from '../../../model/PreparedData';
 import { ConfigItemAttachment } from '../../../model/ConfigItemAttachment';
 import { BrowserUtil } from '../../../../../modules/base-components/webapp/core/BrowserUtil';
@@ -27,6 +26,11 @@ import { LabelValueGroupValue } from '../../../../../model/LabelValueGroupValue'
 import { EventService } from '../../../../base-components/webapp/core/EventService';
 import { ImageViewerEvent } from '../../../../agent-portal/model/ImageViewerEvent';
 import { ImageViewerEventData } from '../../../../agent-portal/model/ImageViewerEventData';
+import { RoutingConfiguration } from '../../../../../model/configuration/RoutingConfiguration';
+import { OrganisationDetailsContext } from '../../../../customer/webapp/core/context/OrganisationDetailsContext';
+import { ContactDetailsContext } from '../../../../customer/webapp/core/context/ContactDetailsContext';
+import { ConfigItemDetailsContext } from '../../core';
+import { ConfigItemProperty } from '../../../model/ConfigItemProperty';
 
 class Component {
 
@@ -47,14 +51,23 @@ class Component {
     }
 
     private async loadVersion(configItem: ConfigItem): Promise<void> {
-        const versions = await KIXObjectService.loadObjects<Version>(
-            KIXObjectType.CONFIG_ITEM_VERSION, configItem.CurrentVersion ? [configItem.CurrentVersion.VersionID] : null,
-            new KIXObjectLoadingOptions(undefined, null, null, [VersionProperty.DATA, VersionProperty.PREPARED_DATA]),
-            new ConfigItemVersionLoadingOptions(configItem.ConfigItemID)
-        );
+        if (!configItem.CurrentVersion) {
+            const loadingOptions = new KIXObjectLoadingOptions();
+            loadingOptions.includes = [
+                ConfigItemProperty.CURRENT_VERSION,
+                VersionProperty.DATA, VersionProperty.PREPARED_DATA
+            ];
+            const configItems = await KIXObjectService.loadObjects<ConfigItem>(
+                KIXObjectType.CONFIG_ITEM, [configItem.ConfigItemID], loadingOptions
+            ).catch((): ConfigItem[] => []);
 
-        if (versions && versions.length) {
-            this.state.version = versions[versions.length - 1];
+            if (configItems.length) {
+                configItem = configItems[0];
+            }
+        }
+
+        if (configItem.CurrentVersion) {
+            this.state.version = configItem.CurrentVersion;
             this.prepareVersion();
         }
     }
@@ -98,14 +111,14 @@ class Component {
         return preparedDataArray;
     }
 
-    public async fileClicked(attachment: ConfigItemAttachment): Promise<void> {
+    public async fileClicked(attachment: ConfigItemAttachment, force: boolean): Promise<void> {
         if (this.state.version) {
             let images: DisplayImageDescription[] = [];
             if (attachment.ContentType.match(/^image\//)) {
                 images = await this.getImages(attachment.ID);
             }
 
-            if (images.length && images.some((i) => i.imageId === attachment.ID)) {
+            if (!force && images.length && images.some((i) => i.imageId === attachment.ID)) {
                 EventService.getInstance().publish(
                     ImageViewerEvent.OPEN_VIEWER,
                     new ImageViewerEventData(images, attachment.ID)
@@ -117,7 +130,7 @@ class Component {
                 );
 
                 if (attachments && attachments.length) {
-                    if (attachments[0].ContentType === 'application/pdf') {
+                    if (!force && attachments[0].ContentType === 'application/pdf') {
                         BrowserUtil.openPDF(attachments[0].Content, attachments[0].Filename);
                     } else {
                         BrowserUtil.startBrowserDownload(
@@ -175,10 +188,13 @@ class Component {
         for (const attr of data) {
             let attachment: ConfigItemAttachment;
             let multiline: boolean;
+            let routingConfiguration: RoutingConfiguration;
 
             let value = await TranslationService.translate(attr.DisplayValue);
             if (attr.Type === 'Date') {
                 value = await DateTimeUtil.getLocalDateString(value);
+            } else if (attr.Type === 'DateTime') {
+                value = await DateTimeUtil.getLocalDateTimeString(value);
             } else if (attr.Type === 'Attachment' && attr.Value) {
                 value = attr.Value.Filename;
 
@@ -188,16 +204,31 @@ class Component {
                 attachment = new ConfigItemAttachment(attr.Value);
             } else if (attr.Type === 'TextArea') {
                 multiline = true;
+            } else if (attr.Type === KIXObjectType.ORGANISATION && attr.Value) {
+                routingConfiguration = new RoutingConfiguration(
+                    OrganisationDetailsContext.CONTEXT_ID, KIXObjectType.ORGANISATION
+                );
+                routingConfiguration.replaceObjectId = attr.Value;
+            } else if (attr.Type === KIXObjectType.CONTACT && attr.Value) {
+                routingConfiguration = new RoutingConfiguration(
+                    ContactDetailsContext.CONTEXT_ID, KIXObjectType.CONTACT
+                );
+                routingConfiguration.replaceObjectId = attr.Value;
+            } else if (attr.Type === 'CIClassReference' && attr.Value) {
+                routingConfiguration = new RoutingConfiguration(
+                    ConfigItemDetailsContext.CONTEXT_ID, KIXObjectType.CONFIG_ITEM
+                );
+                routingConfiguration.replaceObjectId = attr.Value;
             }
 
             const subAttributes = (attr.Sub && attr.Sub.length ? await this.prepareLabelValueGroups(attr.Sub) : null);
 
             const label = await TranslationService.translate(attr.Label);
-            groups.push(
-                new LabelValueGroup(
-                    label, new LabelValueGroupValue(value, multiline, attachment), null, null, subAttributes
-                )
+            const labelValueGroup = new LabelValueGroupValue(value, multiline, attachment, routingConfiguration);
+            const group = new LabelValueGroup(
+                label, labelValueGroup, null, null, subAttributes
             );
+            groups.push(group);
         }
 
         if (images.length) {

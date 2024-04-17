@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -32,15 +32,14 @@ export class DynamicFieldTextAreaFormValue extends ObjectFormValue<string> {
         const dynamicField = await KIXObjectService.loadDynamicField(this.dfName);
         const config = dynamicField?.Config;
 
-        const regexList = config?.RegExList || [];
-        this.regExList = regexList.map((ri) => {
-            return { regEx: ri.Value, errorMessage: ri.ErrorMessage };
-        });
+        this.regExList = config?.RegExList?.map(
+            (ri) => { return { regEx: ri.Value, errorMessage: ri.ErrorMessage }; }
+        ) || [];
 
-        this.value = this.object[this.property];
         this.setValueByDefault(config);
 
         await super.initFormValue();
+        this.value = this.object[this.property];
     }
 
     private setValueByDefault(config: any): void {
@@ -64,6 +63,6 @@ export class DynamicFieldTextAreaFormValue extends ObjectFormValue<string> {
 
     public async initFormValueByField(field: FormFieldConfiguration): Promise<void> {
         this.isEmpty = field?.empty || false;
-        super.initFormValueByField(field);
+        await super.initFormValueByField(field);
     }
 }

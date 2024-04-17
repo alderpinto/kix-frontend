@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -39,17 +39,26 @@ export class TableFactoryService {
         this.subscriber = {
             eventSubscriberId: IdService.generateDateBasedId(),
             eventPublished: (context: Context): void => {
-                this.deleteContextTables(context?.contextId);
+                this.deleteContextTables(context?.contextId, undefined, true);
             }
         };
         EventService.getInstance().subscribe(ContextEvents.CONTEXT_REMOVED, this.subscriber);
     }
 
-    public deleteContextTables(contextId: string): void {
+    public deleteContextTables(contextId: string, objectType?: KIXObjectType | string, keepState?: boolean): void {
         if (this.contextTableInstances.has(contextId)) {
             this.contextTableInstances.get(contextId).forEach((table) => {
-                table.destroy();
-                table.deleteTableState();
+                if (!objectType) {
+                    table.destroy();
+                    if (!keepState) {
+                        table.deleteTableState();
+                    }
+                } else if (table.getObjectType() === objectType) {
+                    table.destroy();
+                    if (!keepState) {
+                        table.deleteTableState();
+                    }
+                }
             });
             this.contextTableInstances.delete(contextId);
         }

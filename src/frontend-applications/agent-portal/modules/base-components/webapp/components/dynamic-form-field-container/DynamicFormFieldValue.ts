@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -96,7 +96,7 @@ export class DynamicFormFieldValue {
         public removable: boolean = true,
         public readonly: boolean = value.readonly,
         public changeable: boolean = value.changeable,
-        public required: boolean = value.required
+        public required: boolean = value.required,
     ) {
 
         if (!id) {
@@ -135,8 +135,8 @@ export class DynamicFormFieldValue {
         await this.manager.setValue(this.value, true);
     }
 
-    public updateProperties(): void {
-        this.setPropertyTree();
+    public async updateProperties(): Promise<string> {
+        return this.setPropertyTree();
     }
 
     public clearValue(): void {
@@ -182,7 +182,7 @@ export class DynamicFormFieldValue {
         await this.createValueInput();
     }
 
-    public async setPropertyTree(): Promise<void> {
+    public async setPropertyTree(): Promise<string> {
         const properties = await this.manager.getProperties();
         // TODO: Its not needed to check unique here, because getProperties() should return only available properties.
         // The manager should make the decision
@@ -208,6 +208,11 @@ export class DynamicFormFieldValue {
             const propNode = nodes.find((n) => n.id.toString() === this.value.property);
             if (propNode) {
                 this.propertyTreeHandler.setSelection([propNode], true, true, true);
+            }
+            // remember instanceId if property is not allowed anmyore (not found in nodes)
+            // (Used elsewhere to delete the node.)
+            else {
+                return this.instanceId;
             }
         }
     }
@@ -322,7 +327,9 @@ export class DynamicFormFieldValue {
         this.value.operator = operator;
         this.isBetween = this.value.operator === SearchOperator.BETWEEN;
         this.isWithin = this.value.operator === SearchOperator.WITHIN;
-        this.isRelativeTime = relativeDateTimeOperators.includes(operator as SearchOperator);
+        this.isRelativeTime = relativeDateTimeOperators.includes(operator as SearchOperator)
+            || this.manager.isRelativDateTimeOperator(operator);
+
         if (this.manager.resetValue) {
             await this.createValueInput();
         }
@@ -377,7 +384,6 @@ export class DynamicFormFieldValue {
                 const tree = await this.doAutocompleteSearch(10, preloadOption[1].toString());
                 this.valueTreeHandler.setTree(tree);
             }
-            /*if (this.isTable) {}*/
         }
     }
 
@@ -427,6 +433,11 @@ export class DynamicFormFieldValue {
                             this.withinEndValue = partsTo[1];
                             this.withinEndUnit = partsTo[2];
                         }
+
+                        this.value.value = [
+                            this.withinStartType, this.withinStartValue, this.withinStartUnit,
+                            this.withinEndType, this.withinEndValue, this.withinEndUnit
+                        ];
                     } else if (this.value.value.length === 6) {
                         this.withinStartType = this.value.value[0];
                         this.withinStartValue = this.value.value[1];
@@ -455,10 +466,10 @@ export class DynamicFormFieldValue {
                     this.relativeTimeValue = this.value.value[0];
                     this.relativeTimeUnit = this.value.value[1];
                 } else if (typeof this.value.value === 'string') {
-                    const parts = this.value.value.split(/(\d+)/);
+                    const parts = this.value.value.split(/([YMdmhsw])$/);
                     if (parts.length === 3) {
-                        this.relativeTimeValue = parts[1];
-                        this.relativeTimeUnit = parts[2];
+                        this.relativeTimeValue = parts[0];
+                        this.relativeTimeUnit = parts[1];
                     }
                 }
                 const node = TreeUtil.findNode(this.relativeTimeUnitTreeHandler.getTree(), this.relativeTimeUnit);
@@ -692,17 +703,13 @@ export class DynamicFormFieldValue {
                     ? [currentValue.value, Number(this.betweenEndNumberValue)] : null;
             }
         }
-        if (this.isRelativeTime) {
-            if (!isNaN(Number(this.relativeTimeValue)) && this.relativeTimeUnit) {
-                currentValue.value = [this.relativeTimeValue, this.relativeTimeUnit];
-            }
+        if (this.isRelativeTime && this.relativeTimeValue) {
+            currentValue.value = [this.relativeTimeValue, this.relativeTimeUnit];
         }
         if (this.isWithin) {
             if (
                 this.withinStartType && this.withinStartValue && this.withinStartUnit &&
-                this.withinEndType && this.withinEndValue && this.withinEndUnit &&
-                !isNaN(Number(this.withinStartValue)) &&
-                !isNaN(Number(this.withinEndValue))
+                this.withinEndType && this.withinEndValue && this.withinEndUnit
             ) {
                 currentValue.value = [
                     this.withinStartType, this.withinStartValue, this.withinStartUnit,
@@ -727,8 +734,9 @@ export class DynamicFormFieldValue {
         }
 
         loadingOptions.limit = limit;
+        loadingOptions.searchLimit = limit;
 
-        await this.manager.prepareLoadingOptions(this.value, loadingOptions);
+        loadingOptions = await this.manager.prepareLoadingOptions(this.value, loadingOptions);
 
         if (this.manager.useOwnSearch) {
             tree = await this.manager.searchObjectTree(this.value.property, searchValue, loadingOptions);

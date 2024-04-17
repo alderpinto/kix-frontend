@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -8,6 +8,7 @@
  */
 
 import { AutocompleteFormFieldOption } from '../../../../../model/AutocompleteFormFieldOption';
+import { AgentPortalConfiguration } from '../../../../../model/configuration/AgentPortalConfiguration';
 import { IKIXObjectService } from '../../../../../modules/base-components/webapp/core/IKIXObjectService';
 import { PlaceholderService } from '../../../../../modules/base-components/webapp/core/PlaceholderService';
 import { ServiceRegistry } from '../../../../../modules/base-components/webapp/core/ServiceRegistry';
@@ -16,6 +17,7 @@ import { SysConfigKey } from '../../../../sysconfig/model/SysConfigKey';
 import { SysConfigService } from '../../../../sysconfig/webapp/core';
 import { TextModule } from '../../../../textmodule/model/TextModule';
 import { BrowserUtil } from '../../core/BrowserUtil';
+import { CKEditorConfiguration } from '../../../model/CKEditorConfiguration';
 import { ComponentState } from './ComponentState';
 
 declare let CKEDITOR: any;
@@ -28,20 +30,17 @@ class EditorComponent {
     private useReadonlyStyle: boolean = false;
     private changeTimeout: any;
     private createTimeout: any;
+    private updateTimeout: any;
     private maxReadyTries: number;
 
     private handleOnInputChange: boolean = false;
+    private inline: boolean;
+    private noImages: boolean;
 
     public onCreate(input: any): void {
-        this.state = new ComponentState(
-            input.inline,
-            input.simple,
-            input.readOnly,
-            input.invalid,
-            input.noImages,
-            input.resize,
-            input.resizeDir
-        );
+        this.inline = input.inline;
+        this.noImages = input.noImages;
+        this.state = new ComponentState(input.readOnly);
     }
 
     public onInput(input: any): void {
@@ -52,51 +51,50 @@ class EditorComponent {
     }
 
     private async update(input: any): Promise<void> {
-        this.useReadonlyStyle = typeof input.useReadonlyStyle !== 'undefined' ? input.useReadonlyStyle : false;
-        if (await this.isEditorReady()) {
-            if (input.addValue) {
-                this.editor.insertHtml(input.addValue);
-            }
+        if (this.updateTimeout) {
+            clearTimeout(this.updateTimeout);
+        }
 
-            // if editor has no value or is not focused, set "new" value
-            if (
-                input.value !== null
-                && (
-                    (this.editor.focusManager && !this.editor.focusManager.hasFocus)
-                    || !this.editor.getData()
-                )
-            ) {
-                let contentString = BrowserUtil.replaceInlineContent(
-                    input.value ? input.value : '', input.inlineContent
-                );
+        this.updateTimeout = setTimeout(async () => {
+            this.useReadonlyStyle = typeof input.useReadonlyStyle !== 'undefined' ? input.useReadonlyStyle : false;
+            if (await this.isEditorReady()) {
+                if (input.addValue) {
+                    this.editor.insertHtml(input.addValue);
+                }
 
-                const plainText: string = input.plainText;
-                const matches = plainText?.match(/(<.*?>)/g);
-                if (matches) {
-                    for (const m of matches) {
-                        let replacedString = m.replace(/>/g, '&gt;');
-                        replacedString = replacedString.replace(/</g, '&lt;');
-                        contentString = contentString.replace(m, replacedString);
+                const isFocused = (this.editor.focusManager && !this.editor.focusManager.hasFocus);
+                // if editor has no value or is not focused, set "new" value
+                if (input.value !== null && (isFocused || !this.editor.getData())) {
+                    let contentString = BrowserUtil.replaceInlineContent(
+                        input.value ? input.value : '', input.inlineContent
+                    );
+
+                    const plainText: string = input.plainText;
+                    const matches = plainText?.match(/(<.*?>)/g);
+                    if (matches) {
+                        for (const m of matches) {
+                            let replacedString = m.replace(/>/g, '&gt;');
+                            replacedString = replacedString.replace(/</g, '&lt;');
+                            contentString = contentString.replace(m, replacedString);
+                        }
+                    }
+
+                    if (this.editor.getData() !== contentString) {
+                        this.handleOnInputChange = true;
+                        this.editor.setData(contentString, () => {
+                            this.editor.updateElement();
+                            this.handleOnInputChange = false;
+                        });
                     }
                 }
 
-                if (this.editor.getData() !== contentString) {
-                    this.handleOnInputChange = true;
-                    this.editor.setData(contentString, () => {
-                        this.editor.updateElement();
-                        this.handleOnInputChange = false;
-                    });
+                if (typeof input.readOnly !== 'undefined' && input.readOnly !== null) {
+                    this.state.readOnly = input.readOnly;
+                    this.editor.setReadOnly(this.state.readOnly);
                 }
-            }
 
-            if (typeof input.readOnly !== 'undefined' && this.state.readOnly !== input.readOnly) {
-                this.state.readOnly = input.readOnly;
-                this.editor.setReadOnly(this.state.readOnly);
-            }
-
-            if (this.useReadonlyStyle) {
-                if (await this.isEditorReady()) {
-                    setTimeout(() => {
+                if (this.useReadonlyStyle) {
+                    if (await this.isEditorReady()) {
                         const element = document.getElementById('cke_' + this.state.id);
                         if (element) {
                             const iframe = element.getElementsByTagName('iframe')[0];
@@ -104,11 +102,10 @@ class EditorComponent {
                             iframe.classList.remove('cke_wysiwyg_frame', 'cke_reset');
                             iframe.classList.add('readonly-ck-editor');
                         }
-                    }, 500);
+                    }
                 }
             }
-        }
-        this.state.invalid = typeof input.invalid !== 'undefined' ? input.invalid : false;
+        }, 50);
     }
 
     public async onMount(): Promise<void> {
@@ -116,57 +113,43 @@ class EditorComponent {
 
         if (!this.instanceExists()) {
             if (this.createTimeout) {
-                window.clearTimeout(this.createTimeout);
+                clearTimeout(this.createTimeout);
                 this.createTimeout = null;
             }
 
-            CKEDITOR.on('instanceCreated', async function () {
-                const configValue = await SysConfigService.getInstance().getSysConfigOptionValue(
-                    SysConfigKey.FRONTEND_RICHTEXT_DEFAULT_CSS
-                );
-
-                let defaultCSS = '';
-                let jsonOptions: any[];
-                try {
-                    jsonOptions = JSON.parse(configValue);
-                } catch (e) {
-                    jsonOptions = [];
-                }
-                for (const css of jsonOptions) {
-                    if (
-                        css?.Selector
-                        && css?.Value
-                    ) {
-                        defaultCSS += css.Selector + '{' + css.Value + '}';
-                    }
-                }
-                if (defaultCSS) {
-                    CKEDITOR.addCss(defaultCSS);
+            CKEDITOR.on('instanceCreated', (event: any) => {
+                if (event?.editor?.name === this.state.id) {
+                    this.setDefaultCSS();
                 }
             });
+
+            const agentPortalConfig = await SysConfigService.getInstance()
+                .getPortalConfiguration<AgentPortalConfiguration>();
+
+            const editorConfig = agentPortalConfig?.ckEditorConfiguration || new CKEditorConfiguration();
 
             this.createTimeout = setTimeout(async () => {
                 if (!this.state.readOnly) {
                     const userLanguage = await TranslationService.getUserLanguage();
                     if (userLanguage) {
-                        this.state.config['language'] = userLanguage;
+                        editorConfig['language'] = userLanguage;
                     }
                 }
 
-                if (this.state.inline) {
+                if (this.inline) {
                     this.editor = CKEDITOR.inline(this.state.id, {
-                        ...this.state.config
+                        ...editorConfig
                     });
                 } else {
                     this.editor = CKEDITOR.replace(this.state.id, {
-                        ...this.state.config
+                        ...editorConfig
                     });
                 }
 
                 const changeListener = (): void => {
                     if (!this.handleOnInputChange) {
                         if (this.changeTimeout) {
-                            window.clearTimeout(this.changeTimeout);
+                            clearTimeout(this.changeTimeout);
                             this.changeTimeout = null;
                         }
 
@@ -179,6 +162,12 @@ class EditorComponent {
                 };
 
                 this.editor.on('change', changeListener);
+
+                this.editor.on('blur', () => {
+                    const value = this.editor.getData();
+                    (this as any).emit('focusLost', value);
+                });
+
                 this.editor.on('mode', () => {
                     const editable = this.editor.editable();
                     if (editable) {
@@ -203,7 +192,7 @@ class EditorComponent {
                 }
 
                 if (await this.isEditorReady()) {
-                    if (this.state.noImages && this.editor.pasteFilter) {
+                    if (this.noImages && this.editor.pasteFilter) {
                         this.editor.pasteFilter.disallow('img');
                     }
                 }
@@ -211,8 +200,31 @@ class EditorComponent {
         }
     }
 
+    private async setDefaultCSS(): Promise<void> {
+        const configValue = await SysConfigService.getInstance().getSysConfigOptionValue(
+            SysConfigKey.FRONTEND_RICHTEXT_DEFAULT_CSS
+        );
+
+        let defaultCSS = '';
+        let jsonOptions: any[];
+        try {
+            jsonOptions = JSON.parse(configValue);
+        } catch (e) {
+            jsonOptions = [];
+        }
+
+        for (const css of jsonOptions) {
+            if (css?.Selector && css?.Value) {
+                defaultCSS += css.Selector + '{' + css.Value + '}';
+            }
+        }
+        if (defaultCSS) {
+            CKEDITOR.addCss(defaultCSS);
+        }
+    }
+
     public async setAutocompleteConfiguration(autocompleteOption: AutocompleteFormFieldOption): Promise<void> {
-        if (await this.isEditorReady()) {
+        if (!this.state.readOnly && await this.isEditorReady()) {
             for (const ao of autocompleteOption.autocompleteObjects) {
                 const service = ServiceRegistry.getServiceInstance<IKIXObjectService>(ao.objectType);
                 if (service) {
@@ -266,7 +278,7 @@ class EditorComponent {
     // weil der Editor schon kurz nach Instanziierung wieder zerstört wird)
     public async onDestroy(): Promise<void> {
         if (this.createTimeout) {
-            window.clearTimeout(this.createTimeout);
+            clearTimeout(this.createTimeout);
             this.createTimeout = null;
         }
         if (this.instanceExists()) {
@@ -306,6 +318,14 @@ class EditorComponent {
      */
     private instanceExists(): boolean {
         return Boolean(CKEDITOR?.instances && CKEDITOR.instances[this.state.id]);
+    }
+
+    public getValue(): string {
+        let value: string;
+        if (this.editor) {
+            value = this.editor.getData();
+        }
+        return value;
     }
 
 }

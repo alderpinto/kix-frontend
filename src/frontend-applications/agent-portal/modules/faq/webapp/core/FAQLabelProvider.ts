@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -21,6 +21,8 @@ import { KIXObjectService } from '../../../../modules/base-components/webapp/cor
 import { TranslationService } from '../../../../modules/translation/webapp/core/TranslationService';
 import { ObjectIcon } from '../../../icon/model/ObjectIcon';
 import { KIXObject } from '../../../../model/kix/KIXObject';
+import { PlaceholderService } from '../../../base-components/webapp/core/PlaceholderService';
+import { SysConfigService } from '../../../sysconfig/webapp/core/SysConfigService';
 
 export class FAQLabelProvider extends LabelProvider<FAQArticle> {
 
@@ -37,6 +39,7 @@ export class FAQLabelProvider extends LabelProvider<FAQArticle> {
                 displayValue = category ? category.Name : value;
                 break;
             case FAQArticleProperty.VOTES:
+            case FAQArticleProperty.RATING:
                 displayValue = value.toString();
                 break;
             case FAQArticleProperty.CUSTOMER_VISIBLE:
@@ -65,6 +68,7 @@ export class FAQLabelProvider extends LabelProvider<FAQArticle> {
                 displayValue = 'Translatable#Attachments';
                 break;
             case FAQArticleProperty.CATEGORY_ID:
+            case FAQArticleProperty.CATEGORY:
                 displayValue = 'Translatable#Category';
                 break;
             case FAQArticleProperty.CUSTOMER_VISIBLE:
@@ -105,7 +109,7 @@ export class FAQLabelProvider extends LabelProvider<FAQArticle> {
             case FAQArticleProperty.TITLE:
                 displayValue = 'Translatable#Title';
                 break;
-            case FAQArticleProperty.VOTES:
+            case FAQArticleProperty.RATING:
                 displayValue = 'Translatable#Rating';
                 break;
             default:
@@ -133,10 +137,9 @@ export class FAQLabelProvider extends LabelProvider<FAQArticle> {
                 displayValue = category ? category.Name : displayValue;
                 break;
             case FAQArticleProperty.VOTES:
-                displayValue = '';
-                if (faqArticle.Votes && faqArticle.Votes.length) {
-                    const average = BrowserUtil.calculateAverage(faqArticle.Votes.map((v) => v.Rating));
-                    displayValue = `(${average})`;
+            case FAQArticleProperty.RATING:
+                if (!isNaN(Number(faqArticle.Rating)) && faqArticle.Rating > 0) {
+                    displayValue = `(${BrowserUtil.round(faqArticle.Rating)})`;
                 }
                 break;
             case FAQArticleProperty.LANGUAGE:
@@ -163,29 +166,36 @@ export class FAQLabelProvider extends LabelProvider<FAQArticle> {
     }
 
     public async getObjectText(faqArticle: FAQArticle, id: boolean = true, title: boolean = true): Promise<string> {
-        let returnString = '';
+        let displayValue = '';
+
         if (faqArticle) {
-            if (id) {
-                let faqHook: string = '';
+            const pattern = await SysConfigService.getInstance().getDisplayValuePattern(KIXObjectType.FAQ_ARTICLE);
 
-                const hookConfig: SysConfigOption[] = await KIXObjectService.loadObjects<SysConfigOption>(
-                    KIXObjectType.SYS_CONFIG_OPTION, [SysConfigKey.FAQ_HOOK]
-                ).catch((error): SysConfigOption[] => []);
+            if (pattern) {
+                displayValue = await PlaceholderService.getInstance().replacePlaceholders(pattern, faqArticle);
+            } else {
+                if (id) {
+                    let faqHook: string = '';
 
-                if (hookConfig && hookConfig.length) {
-                    faqHook = hookConfig[0].Value;
+                    const hookConfig: SysConfigOption[] = await KIXObjectService.loadObjects<SysConfigOption>(
+                        KIXObjectType.SYS_CONFIG_OPTION, [SysConfigKey.FAQ_HOOK]
+                    ).catch((error): SysConfigOption[] => []);
+
+                    if (hookConfig && hookConfig.length) {
+                        faqHook = hookConfig[0].Value;
+                    }
+
+                    displayValue = `${faqHook}${faqArticle.Number}`;
                 }
-
-                returnString = `${faqHook}${faqArticle.Number}`;
-            }
-            if (title) {
-                returnString += (id ? ' - ' : '') + faqArticle.Title;
+                if (title) {
+                    displayValue += (id ? ' - ' : '') + faqArticle.Title;
+                }
             }
 
         } else {
-            returnString = await TranslationService.translate('Translatable#FAQ Article');
+            displayValue = await TranslationService.translate('Translatable#FAQ Article');
         }
-        return returnString;
+        return displayValue;
     }
 
     public getObjectTypeIcon(): string | ObjectIcon {
@@ -221,8 +231,9 @@ export class FAQLabelProvider extends LabelProvider<FAQArticle> {
 
         switch (property) {
             case FAQArticleProperty.VOTES:
-                if (faqArticle && faqArticle.Votes && faqArticle.Votes.length) {
-                    const average = BrowserUtil.calculateAverage(faqArticle.Votes.map((v) => v.Rating));
+            case FAQArticleProperty.RATING:
+                if (faqArticle?.Rating) {
+                    const average = BrowserUtil.round(faqArticle.Rating);
                     for (let i = 0; i < Math.floor(average); i++) {
                         icons.push('kix-icon-star-fully');
                     }

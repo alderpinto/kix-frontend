@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -28,7 +28,6 @@ import { KIXObjectLoadingOptions } from '../../model/KIXObjectLoadingOptions';
 import { KIXObjectType } from '../../model/kix/KIXObjectType';
 import { TableConfiguration } from '../../model/configuration/TableConfiguration';
 import { TableWidgetConfiguration } from '../../model/configuration/TableWidgetConfiguration';
-import { SortOrder } from '../../model/SortOrder';
 import { DefaultColumnConfiguration } from '../../model/configuration/DefaultColumnConfiguration';
 import { DataType } from '../../model/DataType';
 import { ToggleOptions } from '../table/model/ToggleOptions';
@@ -66,7 +65,7 @@ export class Extension extends KIXExtension implements IConfigurationExtension {
             ),
             stateTypeFilterCriteria
         ];
-        openTicketsLoadingOptions.sortOrder = 'Ticket.-Age:numeric';
+        openTicketsLoadingOptions.sortOrder = 'Ticket.CreateTime:datetime';
         openTicketsLoadingOptions.limit = 10;
         openTicketsLoadingOptions.searchLimit = 100;
 
@@ -79,7 +78,7 @@ export class Extension extends KIXExtension implements IConfigurationExtension {
 
         const tableMyOpenTicketsWidgetConfiguration = new TableWidgetConfiguration(
             'home-dashboard-ticket-table-myOpenTickets-widget', 'Translatable#My Open Tickets Table Widget',
-            ConfigurationType.TableWidget, KIXObjectType.TICKET, [TicketProperty.AGE, SortOrder.DOWN],
+            ConfigurationType.TableWidget, KIXObjectType.TICKET, null,
             new ConfigurationDefinition('home-dashboard-ticket-table-myOpenTickets', ConfigurationType.Table)
         );
         configurations.push(tableMyOpenTicketsWidgetConfiguration);
@@ -100,7 +99,7 @@ export class Extension extends KIXExtension implements IConfigurationExtension {
                 TicketProperty.STATE_ID, SearchOperator.EQUALS, FilterDataType.NUMERIC, FilterType.OR, 1
             )
         ];
-        newTicketsLoadingOptions.sortOrder = 'Ticket.-Age:numeric';
+        newTicketsLoadingOptions.sortOrder = 'Ticket.-CreateTime:datetime';
         newTicketsLoadingOptions.limit = 10;
         newTicketsLoadingOptions.searchLimit = 100;
 
@@ -139,7 +138,7 @@ export class Extension extends KIXExtension implements IConfigurationExtension {
         const newTicketsTableWidget = new TableWidgetConfiguration(
             'home-dashboard-ticket-new-table-widget', 'Translatable#New Tickets Table Widget',
             ConfigurationType.TableWidget,
-            KIXObjectType.TICKET, [TicketProperty.AGE, SortOrder.UP],
+            KIXObjectType.TICKET, null,
             new ConfigurationDefinition('home-dashboard-ticket-table-new', ConfigurationType.Table),
             null, null, true
         );
@@ -147,7 +146,7 @@ export class Extension extends KIXExtension implements IConfigurationExtension {
 
         const newTicketsWidget = new WidgetConfiguration(
             'home-dashboard-new-tickets-widget', 'Translatable#New Tickets Widget', ConfigurationType.Widget,
-            'table-widget', 'New Tickets', ['bulk-action', 'csv-export-action'],
+            'table-widget', 'Translatable#New Tickets', ['bulk-action', 'csv-export-action'],
             new ConfigurationDefinition('home-dashboard-ticket-new-table-widget', ConfigurationType.TableWidget),
             null, false, true, 'kix-icon-ticket', false
         );

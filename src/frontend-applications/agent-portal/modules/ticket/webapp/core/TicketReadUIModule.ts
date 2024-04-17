@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -52,6 +52,9 @@ import { PersonalSettingsProperty } from '../../../user/model/PersonalSettingsPr
 import { ArticlePlaceholderHandler } from './ArticlePlaceholderHandler';
 import { TableCSSHandlerRegistry } from '../../../table/webapp/core/css-handler/TableCSSHandlerRegistry';
 import { TableFactoryService } from '../../../table/webapp/core/factory/TableFactoryService';
+import { TicketLockLabelProvider } from './TicketLockLabelProvider';
+import { DoNotSentEventHandler } from './DoNotSentEventHandler';
+import { UserCounterEventHandler } from './UserCounterEventHandler';
 
 export class UIModule implements IUIModule {
 
@@ -93,6 +96,7 @@ export class UIModule implements IUIModule {
         LabelService.getInstance().registerLabelProvider(new TicketStateTypeLabelProvider());
         LabelService.getInstance().registerLabelProvider(new ChannelLabelProvider());
         LabelService.getInstance().registerLabelProvider(new QueueLabelProvider());
+        LabelService.getInstance().registerLabelProvider(new TicketLockLabelProvider());
 
         TableFactoryService.getInstance().registerFactory(new TicketTableFactory());
         TableFactoryService.getInstance().registerFactory(new ArticleTableFactory());
@@ -119,6 +123,9 @@ export class UIModule implements IUIModule {
             ticketManager.addExtendedJobFormManager(new TicketStateSet());
             ticketManager.addExtendedJobFormManager(new TeamSet());
         }
+
+        DoNotSentEventHandler.getInstance();
+        UserCounterEventHandler.getInstance();
 
         if (this.doRegisterContexts) {
             await this.registerContexts();
@@ -167,7 +174,7 @@ export class UIModule implements IUIModule {
         ContextService.getInstance().registerContext(searchContext);
 
         const ticketListContext = new ContextDescriptor(
-            TicketListContext.CONTEXT_ID, [KIXObjectType.TICKET], ContextType.MAIN, ContextMode.DASHBOARD,
+            TicketListContext.CONTEXT_ID, [KIXObjectType.TICKET], ContextType.MAIN, ContextMode.DETAILS,
             false, 'ticket-list-module', ['ticket-list'], TicketListContext,
             [
                 new UIComponentPermission('tickets', [CRUD.READ])

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -46,9 +46,9 @@ export class ConfigItemSearchDefinition extends SearchDefinition {
     }
 
     public async getLoadingOptions(
-        criteria: FilterCriteria[], limit: number, sortAttribute?: string, sortDescanding?: boolean
+        criteria: FilterCriteria[], limit: number, sortAttribute?: string, sortDescending?: boolean
     ): Promise<KIXObjectLoadingOptions> {
-        const loadingOptions = await super.getLoadingOptions(criteria, limit, sortAttribute, sortDescanding);
+        const loadingOptions = await super.getLoadingOptions(criteria, limit, sortAttribute, sortDescending);
 
         if (!loadingOptions.includes) {
             loadingOptions.includes = [];
@@ -91,6 +91,7 @@ export class ConfigItemSearchDefinition extends SearchDefinition {
         for (const searchCriteria of criteria) {
             switch (searchCriteria.property) {
                 case SearchProperty.FULLTEXT:
+                case ConfigItemProperty.PREVIOUS_VERSION_SEARCH:
                     newCriteria.push(searchCriteria);
                     break;
                 case ConfigItemProperty.NAME:
@@ -132,7 +133,7 @@ export class ConfigItemSearchDefinition extends SearchDefinition {
                     newCriteria.push(searchCriteria);
                     break;
                 default:
-                    if (classIds && forSearch) {
+                    if (classIds && forSearch && !searchCriteria.property.match(/^CurrentVersion.Data/)) {
                         const path = await ConfigItemClassAttributeUtil.getAttributePath(
                             searchCriteria.property, classIds
                         );
@@ -166,10 +167,6 @@ export class ConfigItemSearchDefinition extends SearchDefinition {
         let criteria = [];
         switch (property) {
             case ConfigItemProperty.NAME:
-                criteria.push(new FilterCriteria(
-                    'CurrentVersion.' + property, SearchOperator.CONTAINS, FilterDataType.STRING, FilterType.AND, value
-                ));
-                break;
             case ConfigItemProperty.NUMBER:
                 criteria.push(
                     new FilterCriteria(property, SearchOperator.CONTAINS, FilterDataType.STRING, FilterType.AND, value)

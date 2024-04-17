@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -22,24 +22,27 @@ export class Component extends AbstractMarkoComponent<ComponentState> {
     public onInput(input: any): void {
         this.formValue = input.formValue;
         this.state.readonly = this.formValue?.readonly;
+        this.prepareControls();
     }
 
     public async onMount(): Promise<void> {
-        const formValue = this.getCountableFormValue();
-        this.state.canAdd = formValue?.canAddValue(this.formValue.instanceId);
-        this.state.canRemove = formValue?.canRemoveValue(this.formValue.instanceId);
+        this.prepareControls();
     }
 
     public async addValue(): Promise<void> {
         const formValue = this.getCountableFormValue();
         await formValue?.addFormValue(this.formValue.instanceId, null);
-        this.state.canAdd = formValue?.canAddValue(this.formValue.instanceId);
-        this.state.canRemove = formValue?.canRemoveValue(this.formValue.instanceId);
+        this.prepareControls();
     }
 
     public async removeValue(): Promise<void> {
         const formValue = this.getCountableFormValue();
         await formValue?.removeFormValue(this.formValue.instanceId);
+        this.prepareControls();
+    }
+
+    public prepareControls(): void {
+        const formValue = this.getCountableFormValue();
         this.state.canAdd = formValue?.canAddValue(this.formValue.instanceId);
         this.state.canRemove = formValue?.canRemoveValue(this.formValue.instanceId);
     }

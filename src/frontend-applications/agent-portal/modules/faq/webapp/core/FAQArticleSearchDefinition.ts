@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -29,11 +29,10 @@ export class FAQArticleSearchDefinition extends SearchDefinition {
     }
 
     public async getLoadingOptions(
-        criteria: FilterCriteria[], limit: number, sortAttribute?: string, sortDescanding?: boolean
+        criteria: FilterCriteria[], limit: number, sortAttribute?: string, sortDescending?: boolean
     ): Promise<KIXObjectLoadingOptions> {
-        const loadingOptions = await super.getLoadingOptions(criteria, limit, sortAttribute, sortDescanding);
-        loadingOptions.includes = [KIXObjectProperty.LINKS, FAQArticleProperty.VOTES];
-        loadingOptions.expands = [KIXObjectProperty.LINKS];
+        const loadingOptions = await super.getLoadingOptions(criteria, limit, sortAttribute, sortDescending);
+        loadingOptions.includes = [FAQArticleProperty.RATING];
         return loadingOptions;
     }
 

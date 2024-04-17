@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -19,6 +19,9 @@ import { User } from '../../../../user/model/User';
 import { RowObject } from '../../../../table/model/RowObject';
 import { Table } from '../../../../table/model/Table';
 import { TableValue } from '../../../../table/model/TableValue';
+import { ContextService } from '../../../../base-components/webapp/core/ContextService';
+import { ContextMode } from '../../../../../model/ContextMode';
+import { SortOrder } from '../../../../../model/SortOrder';
 
 export class ContactTableContentProvider extends TableContentProvider<Contact> {
 
@@ -29,6 +32,7 @@ export class ContactTableContentProvider extends TableContentProvider<Contact> {
         contextId?: string
     ) {
         super(KIXObjectType.CONTACT, table, objectIds, loadingOptions, contextId);
+        this.useBackendSort = true;
     }
 
     public async loadData(): Promise<Array<RowObject<Contact>>> {
@@ -62,6 +66,15 @@ export class ContactTableContentProvider extends TableContentProvider<Contact> {
                     value.objectValue = user[value.property];
                 } else if (value.property === UserProperty.IS_AGENT || value.property === UserProperty.IS_CUSTOMER) {
                     value.objectValue = 0;
+                }
+            } else if (value.property === ContactProperty.EMAIL) {
+                // show all email addresses in email columns (in search result table)
+                const context = ContextService.getInstance().getActiveContext();
+                if (context?.descriptor.contextMode === ContextMode.SEARCH) {
+                    value.displayValue = [
+                        contact.Email, contact.Email1, contact.Email2,
+                        contact.Email3, contact.Email4, contact.Email5
+                    ].filter((e) => e).join(', ');
                 }
             }
         }

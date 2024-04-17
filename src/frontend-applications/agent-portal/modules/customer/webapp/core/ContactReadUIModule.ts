@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -32,12 +32,15 @@ import { ContactSearchContext } from './context/ContactSearchContext';
 import { ContactTableFactory } from './table';
 import { FormService } from '../../../base-components/webapp/core/FormService';
 import { ContactFormFieldValueHandler } from './ContactFormFieldValueHandler';
+import { ContactJobFormManager } from './ContactJobFormManager';
+import { JobFormService } from '../../../job/webapp/core';
+import { JobTypes } from '../../../job/model/JobTypes';
 
 export class UIModule implements IUIModule {
 
     public priority: number = 303;
 
-    public name: string = 'CMDBReadUIModule';
+    public name: string = 'ContactReadUIModule';
 
     public unRegister(): Promise<void> {
         throw new Error('Method not implemented.');
@@ -54,6 +57,8 @@ export class UIModule implements IUIModule {
         SearchService.getInstance().registerSearchDefinition(new ContactSearchDefinition());
 
         FormService.getInstance().addFormFieldValueHandler(new ContactFormFieldValueHandler());
+
+        JobFormService.getInstance().registerJobFormManager(JobTypes.CONTACT, new ContactJobFormManager());
 
         await this.registerContexts();
         this.registerActions();

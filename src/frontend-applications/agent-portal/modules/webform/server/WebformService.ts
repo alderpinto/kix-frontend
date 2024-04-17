@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -48,8 +48,8 @@ export class WebformService {
     public async loadWebforms(token: string, withPassword: boolean = false): Promise<Webform[]> {
         const configuration = await ModuleConfigurationService.getInstance().loadConfiguration<any>(
             token, 'kix-customer-portal-light-webforms'
-        );
-        const webforms: Webform[] = configuration ? configuration.webforms : [];
+        ).catch(() => null);
+        const webforms: Webform[] = configuration?.webforms || [];
         if (!withPassword) {
             webforms.forEach((wf) => delete wf.webformUserPassword);
         }
@@ -123,7 +123,7 @@ export class WebformService {
 
                 const token = await AuthenticationService.getInstance().login(
                     form.userLogin, form.webformUserPassword, UserType.AGENT, null,
-                    IdService.generateDateBasedId('web-form-login'), 'WebformService', false
+                    'WebformService', null, false
                 ).catch((error) => null);
 
                 if (token) {

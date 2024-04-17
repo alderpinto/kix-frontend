@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -14,6 +14,7 @@ import { KIXObjectType } from '../../../../../../model/kix/KIXObjectType';
 import { AdditionalContextInformation } from '../../../../../base-components/webapp/core/AdditionalContextInformation';
 import { ContextService } from '../../../../../base-components/webapp/core/ContextService';
 import { KIXObjectService } from '../../../../../base-components/webapp/core/KIXObjectService';
+import { FormValueProperty } from '../../../../../object-forms/model/FormValueProperty';
 import { ObjectFormValue } from '../../../../../object-forms/model/FormValues/ObjectFormValue';
 import { RichTextFormValue } from '../../../../../object-forms/model/FormValues/RichTextFormValue';
 import { SelectObjectFormValue } from '../../../../../object-forms/model/FormValues/SelectObjectFormValue';
@@ -46,30 +47,40 @@ export class ChannelFormValue extends SelectObjectFormValue<number> {
         this.inputComponentId = 'channel-form-input';
 
         this.createArticleFormValues(article);
-
-        article?.addBinding(ArticleProperty.CHANNEL_ID, async (value: number) => {
-            if (this.visible) {
-                await this.setChannelFields(value);
-            }
-        });
     }
 
     public async initFormValue(): Promise<void> {
         await super.initFormValue();
 
         if (!this.value) {
-            const context = ContextService.getInstance().getActiveContext();
-            const refArticleId = context?.getAdditionalInformation(ArticleProperty.REFERENCED_ARTICLE_ID);
-            if (refArticleId) {
-                const refTicketId = context?.getObjectId();
-                const refArticle = await this.loadReferencedArticle(Number(refTicketId), refArticleId);
-                if (refArticle) {
-                    this.value = refArticle?.ChannelID;
-                }
-            }
+            const article = await this.getReferencedArticle();
+            this.value = article?.ChannelID;
         }
 
-        await this.setChannelFields(this.value);
+        if (this.value) {
+            await this.setChannelFields(this.value);
+        } else {
+            this.formValues.forEach((fv) => fv.enabled = false);
+        }
+
+        this.object?.addBinding(ArticleProperty.CHANNEL_ID, async (value: number) => {
+            if (this.visible) {
+                await this.setChannelFields(value);
+            }
+        });
+    }
+
+    private async getReferencedArticle(): Promise<Article> {
+        const context = ContextService.getInstance().getActiveContext();
+        let article = context.getAdditionalInformation('REFERENCED_ARTICLE');
+
+        const refArticleId = context?.getAdditionalInformation(ArticleProperty.REFERENCED_ARTICLE_ID);
+        if (!article && refArticleId) {
+            const refTicketId = context?.getObjectId();
+            article = await this.loadReferencedArticle(Number(refTicketId), refArticleId);
+        }
+
+        return article;
     }
 
     public async initFormValueByField(field: FormFieldConfiguration): Promise<void> {
@@ -183,11 +194,11 @@ export class ChannelFormValue extends SelectObjectFormValue<number> {
 
             let submitPattern = 'Translatable#Save';
             if (channel?.Name === 'note') {
-                this.disableChannelFormValues(allFields.filter((p) => !noteFields.includes(p)));
-                this.enableChannelFormValues(channel.Name, noteFields);
+                await this.disableChannelFormValues(allFields.filter((p) => !noteFields.includes(p)));
+                await this.enableChannelFormValues(channel.Name, noteFields);
             } else if (channel?.Name === 'email') {
-                this.disableChannelFormValues(allFields.filter((p) => !mailFields.includes(p)));
-                this.enableChannelFormValues(channel.Name, mailFields);
+                await this.disableChannelFormValues(allFields.filter((p) => !mailFields.includes(p)));
+                await this.enableChannelFormValues(channel.Name, mailFields);
                 submitPattern = 'Translatable#Send';
             }
 
@@ -197,37 +208,27 @@ export class ChannelFormValue extends SelectObjectFormValue<number> {
         }
     }
 
-    protected enableChannelFormValues(channelName: string, properties: ArticleProperty[]): void {
+    protected async enableChannelFormValues(channelName: string, properties: ArticleProperty[]): Promise<void> {
         for (const property of properties) {
             const formValue = this.formValues.find((fv) => fv.property === property);
 
             const isEdit = this.objectValueMapper.formContext === FormContext.EDIT;
-            const showFormValue = property !== ArticleProperty.TO || isEdit;
 
-            let showCc = false;
-            let showBcc = false;
-
-            if (property === ArticleProperty.CC) {
-                const toValue = this.formValues.find((fv) => fv.property === ArticleProperty.TO);
-                if (
-                    (!toValue?.enabled && !isEdit)
-                    || (toValue?.enabled && formValue?.value && isEdit)
-                ) {
-                    showCc = true;
+            if (formValue) {
+                if (property === ArticleProperty.CC) {
+                    const toValue = this.formValues.find((fv) => fv.property === ArticleProperty.TO);
+                    const canShow = (!toValue?.enabled && !isEdit) || (toValue?.enabled && formValue?.value && isEdit);
+                    formValue.visible = canShow;
                 }
-            }
-            if (property === ArticleProperty.BCC) {
-                const toValue = this.formValues.find((fv) => fv.property === ArticleProperty.TO);
-                if (toValue?.enabled && formValue?.value && isEdit) {
-                    showBcc = true;
+                if (property === ArticleProperty.BCC) {
+                    const toValue = this.formValues.find((fv) => fv.property === ArticleProperty.TO);
+                    const canShow = toValue?.enabled && formValue?.value && isEdit;
+                    formValue.visible = canShow;
                 }
-            }
 
-            if (formValue && showFormValue) {
-                formValue.enabled = this.enabled;
-
-                if (showCc || showBcc) {
-                    formValue.visible = true;
+                // TO is enabled for edit or if set by template (initFormValueByField in RecipientFormValue)
+                if (formValue.property !== ArticleProperty.TO || isEdit) {
+                    await formValue.enable();
                 }
 
                 // make sure relevant properties are always required
@@ -238,12 +239,12 @@ export class ChannelFormValue extends SelectObjectFormValue<number> {
         }
     }
 
-    protected disableChannelFormValues(properties: ArticleProperty[]): void {
+    protected async disableChannelFormValues(properties: ArticleProperty[]): Promise<void> {
         for (const property of properties) {
             const formValue = this.formValues.find((fv) => fv.property === property);
 
             if (formValue) {
-                formValue.enabled = false;
+                await formValue.disable();
             }
         }
     }

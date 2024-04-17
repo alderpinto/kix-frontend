@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -30,7 +30,7 @@ import { UIUtil } from '../../core/UIUtil';
 export class ObjectReferenceUtil {
 
     public static async searchObjects(
-        limit: number, searchValue: string, options: FormFieldOption[] = []
+        limit: number, searchValue: string, options: FormFieldOption[] = [], collectionId?: string
     ): Promise<KIXObject[]> {
         let objects: KIXObject[] = [];
 
@@ -82,13 +82,15 @@ export class ObjectReferenceUtil {
             }
 
             loadingOptions.limit = autoCompleteConfiguration.limit;
+            loadingOptions.searchLimit = autoCompleteConfiguration.limit;
 
             const preparedOptions = await this.prepareLoadingOptions(loadingOptions, searchValue);
 
             // use ids only if no filter given => filter with ids afterwards
             // TODO: use ids as additional filter/search to prevent missing results because of limit
             objects = await KIXObjectService.loadObjects<KIXObject>(
-                objectType, filter ? null : objectIds, preparedOptions, specificLoadingOptions?.value, false
+                objectType, filter ? null : objectIds, preparedOptions, specificLoadingOptions?.value, false,
+                true, undefined, collectionId
             );
             if (filter && objectIds) {
                 objects = objects.filter((o) => objectIds.some((oid) => oid.toString() === o.ObjectId.toString()));
@@ -107,7 +109,9 @@ export class ObjectReferenceUtil {
             loadingOptions.limit,
             loadingOptions.includes,
             loadingOptions.expands,
-            []
+            [],
+            loadingOptions.cacheType,
+            loadingOptions.searchLimit
         );
 
         const context = ContextService.getInstance().getActiveContext();

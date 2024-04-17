@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -55,55 +55,59 @@ export class Component extends AbstractMarkoComponent<ComponentState> {
             this.state.submitPattern = submitButtonText;
         }
 
-        await this.loadForm();
+        await this.setFormValues();
 
         this.subscriber = {
             eventSubscriberId: IdService.generateDateBasedId('object-form'),
-            eventPublished: async (context: Context, eventId: string): Promise<void> => {
-                if (
-                    eventId === FormEvent.OBJECT_FORM_HANDLER_CHANGED &&
-                    context.instanceId === this.context.instanceId
+            eventPublished: async (data: Context | any, eventId: string): Promise<void> => {
+                if (eventId === ObjectFormEvent.BLOCK_FORM) {
+                    this.state.blocked = data.blocked;
+                } else if (
+                    (
+                        eventId === FormEvent.OBJECT_FORM_HANDLER_CHANGED ||
+                        eventId === ObjectFormEvent.FORM_VALUE_ADDED
+                    ) &&
+                    data.instanceId === this.context.instanceId
                 ) {
                     this.state.prepared = false;
-                    this.loadForm();
-                    setTimeout(() => this.state.prepared = true, 5);
+                    await this.setFormValues();
+                    setTimeout(() => this.state.prepared = true, 35);
                 } else if (eventId === ObjectFormEvent.FIELD_ORDER_CHANGED) {
                     this.state.prepared = false;
                     await this.setFormValues();
-                    setTimeout(() => this.state.prepared = true, 5);
+                    setTimeout(() => this.state.prepared = true, 35);
                 }
             }
         };
 
         EventService.getInstance().subscribe(FormEvent.OBJECT_FORM_HANDLER_CHANGED, this.subscriber);
         EventService.getInstance().subscribe(ObjectFormEvent.FIELD_ORDER_CHANGED, this.subscriber);
+        EventService.getInstance().subscribe(ObjectFormEvent.FORM_VALUE_ADDED, this.subscriber);
+        EventService.getInstance().subscribe(ObjectFormEvent.BLOCK_FORM, this.subscriber);
+
+        setTimeout(() => this.state.prepared = true, 250);
     }
 
     public onDestroy(): void {
         EventService.getInstance().unsubscribe(FormEvent.OBJECT_FORM_HANDLER_CHANGED, this.subscriber);
         EventService.getInstance().unsubscribe(ObjectFormEvent.FIELD_ORDER_CHANGED, this.subscriber);
-    }
-
-    private async loadForm(): Promise<void> {
-        await this.setFormValues();
+        EventService.getInstance().unsubscribe(ObjectFormEvent.FORM_VALUE_ADDED, this.subscriber);
+        EventService.getInstance().unsubscribe(ObjectFormEvent.BLOCK_FORM, this.subscriber);
     }
 
     private async setFormValues(): Promise<void> {
         this.formhandler = await this.context.getFormManager().getObjectFormHandler();
-        this.state.formValues = this.formhandler?.getFormValues() || [];
+        if (this.formhandler) {
+            this.state.formValues = this.formhandler?.getFormValues() || [];
+        } else {
+            this.state.error = 'Translatable#No form available. Please contact your administrator.';
+        }
     }
 
     public async submit(): Promise<void> {
         try {
-            this.state.prepared = false;
-
-            const id = await this.formhandler.commit();
-            if (id) {
-                await ContextService.getInstance().toggleActiveContext(
-                    this.context.descriptor.targetContextId, id, true
-                );
-
-                await BrowserUtil.openSuccessOverlay('Translatable#Success');
+            if (!this.state.blocked) {
+                await this.sendSubmit();
             }
         } catch (e) {
             this.state.prepared = true;
@@ -113,6 +117,29 @@ export class Component extends AbstractMarkoComponent<ComponentState> {
                 EventService.getInstance().publish(ObjectFormEvent.SCROLL_TO_FORM_VALUE, invalidFormValue?.instanceId);
             }, 25);
         }
+    }
+
+    private async sendSubmit(): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            setTimeout(async () => {
+                this.state.prepared = false;
+
+                try {
+                    const id = await this.formhandler.commit();
+                    if (id) {
+
+                        await ContextService.getInstance().removeContext(
+                            this.context?.instanceId, this.context?.descriptor?.targetContextId, id, true, true, true
+                        );
+
+                        await BrowserUtil.openSuccessOverlay('Translatable#Success');
+                    }
+                    resolve();
+                } catch (e) {
+                    reject(e);
+                }
+            }, 1000);
+        });
     }
 
     private getFirstInvlaidFOrmValue(formValues: ObjectFormValue[]): ObjectFormValue {

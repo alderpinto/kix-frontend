@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -47,6 +47,7 @@ import { ConfigItemClass } from '../model/ConfigItemClass';
 import { KIXObjectProperty } from '../../../model/kix/KIXObjectProperty';
 import { ObjectResponse } from '../../../server/services/ObjectResponse';
 import { HTTPResponse } from '../../../server/services/HTTPResponse';
+import { GeneralCatalogService } from '../../general-catalog/server/GeneralCatalogService';
 
 
 export class CMDBAPIService extends KIXObjectAPIService {
@@ -86,7 +87,7 @@ export class CMDBAPIService extends KIXObjectAPIService {
                 FilterType.AND, 'postproductive')
         ], undefined, undefined, [GeneralCatalogItemProperty.PREFERENCES]);
 
-        const objectResponse = await this.loadObjects<GeneralCatalogItem>(
+        const objectResponse = await GeneralCatalogService.getInstance().loadObjects<GeneralCatalogItem>(
             token, null, KIXObjectType.GENERAL_CATALOG_ITEM, null, loadingOptions, null
         );
 
@@ -157,7 +158,11 @@ export class CMDBAPIService extends KIXObjectAPIService {
                 token, uri, clientRequestId, query
             );
         } else if (loadingOptions.filter) {
-            await this.buildFilter(loadingOptions.filter, 'ConfigItem', query, token);
+            const success = await this.buildFilter(loadingOptions.filter, 'ConfigItem', query, token);
+            if (!success) {
+                LoggingService.getInstance().warning('Invalid api filter.', JSON.stringify(loadingOptions.filter));
+                return new ObjectResponse([], 0);
+            }
             const uri = this.buildUri('cmdb', 'configitems');
             httpResponse = await this.getObjectByUri<ConfigItemsResponse>(token, uri, clientRequestId, query);
         } else {
@@ -217,7 +222,11 @@ export class CMDBAPIService extends KIXObjectAPIService {
                 }
 
             } else if (loadingOptions.filter) {
-                await this.buildFilter(loadingOptions.filter, 'Image', query, token);
+                const success = await this.buildFilter(loadingOptions.filter, 'Image', query, token);
+                if (!success) {
+                    LoggingService.getInstance().warning('Invalid api filter.', JSON.stringify(loadingOptions.filter));
+                    return [];
+                }
                 const uri = this.buildUri('cmdb', subResource);
                 const response = await this.getObjectByUri<ConfigItemImagesResponse>(
                     token, uri, clientRequestId, query
@@ -340,7 +349,9 @@ export class CMDBAPIService extends KIXObjectAPIService {
                 !c.property.startsWith('Data') &&
                 !c.property.startsWith('CurrentVersion') &&
                 c.property !== ConfigItemProperty.ASSIGNED_CONTACT &&
-                c.property !== ConfigItemProperty.ASSIGNED_ORGANISATION;
+                c.property !== ConfigItemProperty.ASSIGNED_ORGANISATION &&
+                c.property !== ConfigItemProperty.PREVIOUS_VERSION_SEARCH &&
+                c.property !== 'ID';
         });
     }
 
@@ -383,7 +394,6 @@ export class CMDBAPIService extends KIXObjectAPIService {
                     )
                 );
             }
-
         }
 
         const newCriteria = criteria.filter((c) =>
@@ -399,7 +409,9 @@ export class CMDBAPIService extends KIXObjectAPIService {
             c.property.startsWith('Data') ||
             c.property.startsWith('CurrentVersion') ||
             c.property === ConfigItemProperty.ASSIGNED_CONTACT ||
-            c.property === ConfigItemProperty.ASSIGNED_ORGANISATION
+            c.property === ConfigItemProperty.ASSIGNED_ORGANISATION ||
+            c.property === ConfigItemProperty.PREVIOUS_VERSION_SEARCH ||
+            c.property === 'ID'
         );
 
         for (const searchCriteria of newCriteria) {
@@ -421,6 +433,11 @@ export class CMDBAPIService extends KIXObjectAPIService {
                     searchCriteria.operator = SearchOperator.IN;
                     searchCriteria.value = Array.isArray(searchCriteria.value)
                         ? searchCriteria.value : [searchCriteria.value as number];
+                    break;
+                case ConfigItemProperty.PREVIOUS_VERSION_SEARCH:
+                    searchCriteria.operator = SearchOperator.EQUALS;
+                    searchCriteria.value = Array.isArray(searchCriteria.value)
+                        ? searchCriteria.value[0] : searchCriteria.value;
                     break;
                 default:
             }

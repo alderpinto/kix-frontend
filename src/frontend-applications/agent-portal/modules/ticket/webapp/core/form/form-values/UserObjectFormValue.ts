@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -15,10 +15,12 @@ import { FilterType } from '../../../../../../model/FilterType';
 import { KIXObjectProperty } from '../../../../../../model/kix/KIXObjectProperty';
 import { KIXObjectType } from '../../../../../../model/kix/KIXObjectType';
 import { KIXObjectLoadingOptions } from '../../../../../../model/KIXObjectLoadingOptions';
+import { KIXObjectService } from '../../../../../base-components/webapp/core/KIXObjectService';
 import { ObjectFormValue } from '../../../../../object-forms/model/FormValues/ObjectFormValue';
 import { SelectObjectFormValue } from '../../../../../object-forms/model/FormValues/SelectObjectFormValue';
 import { ObjectFormValueMapper } from '../../../../../object-forms/model/ObjectFormValueMapper';
 import { SearchOperator } from '../../../../../search/model/SearchOperator';
+import { User } from '../../../../../user/model/User';
 import { UserProperty } from '../../../../../user/model/UserProperty';
 import { Ticket } from '../../../../model/Ticket';
 import { TicketProperty } from '../../../../model/TicketProperty';
@@ -46,22 +48,19 @@ export class UserObjectFormValue extends SelectObjectFormValue {
     public async initFormValue(): Promise<void> {
         await super.initFormValue();
         if (this.object && this.property) {
-            const userId = this.object[this.property];
-            if (userId) {
-                await this.setFormValue(userId, true);
-            }
-
             if (this.objectValueMapper?.object) {
                 this.objectBindingIds = [
                     this.objectValueMapper.object.addBinding(TicketProperty.QUEUE_ID, () => {
                         this.setLoadingOptions();
-                        this.value = null;
+                        this.updateValue();
                     })
                 ];
             }
         }
 
         this.setLoadingOptions();
+
+        this.loadInitialUser();
     }
 
     public async setLoadingOptions(): Promise<void> {
@@ -106,4 +105,48 @@ export class UserObjectFormValue extends SelectObjectFormValue {
         this.loadingOptions.query = query;
     }
 
+    public async reset(
+        ignoreProperties?: string[], ignoreFormValueProperties?: string[], ignoreFormValueReset?: string[]
+    ): Promise<void> {
+        await super.reset(ignoreProperties, ignoreFormValueProperties, ignoreFormValueReset);
+        await this.loadInitialUser();
+    }
+
+    protected async loadInitialUser(): Promise<void> {
+        if (this.enabled) {
+            this.loadingOptions.limit = 10;
+            this.loadingOptions.searchLimit = 10;
+            const users = await KIXObjectService.loadObjects<User>(KIXObjectType.USER, null, this.loadingOptions)
+                .catch((): User[] => []);
+            if (users?.length) {
+                await this.prepareSelectableNodes(users);
+            }
+        }
+    }
+
+    protected async updateValue(): Promise<void> {
+        if (this.value) {
+            const userId: number = Array.isArray(this.value) && this.value.length
+                ? Number(this.value[0])
+                : Number(this.value);
+
+            const loadingOptions = JSON.parse(JSON.stringify(this.loadingOptions));
+            loadingOptions.limit = 1;
+            loadingOptions.filter = [
+                new FilterCriteria(
+                    UserProperty.USER_ID, SearchOperator.EQUALS, FilterDataType.NUMERIC,
+                    FilterType.AND, userId
+                )
+            ];
+
+            const users = await KIXObjectService.loadObjects<User>(
+                KIXObjectType.USER, null, loadingOptions
+            ).catch(() => []);
+
+            if (!users.length) {
+                this.value = null;
+                this.loadSelectedValues();
+            }
+        }
+    }
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -159,7 +159,9 @@ class Component {
             this.state.widgets.map((w) => w.instanceId), this.modifiedWidgets, this.contextWidgetList
         );
 
-        EventService.getInstance().publish(ContextEvents.CONTEXT_USER_WIDGETS_CHANGED);
+        EventService.getInstance().publish(
+            ContextEvents.CONTEXT_USER_WIDGETS_CHANGED, { widgets: [...this.modifiedWidgets] }
+        );
         EventService.getInstance().publish(ApplicationEvent.TOGGLE_CONFIGURATION_MODE, { cancel: false });
     }
 
@@ -177,6 +179,8 @@ class Component {
                 const originalWidget = this.originalWidgets.find((w) => w.instanceId === widget.instanceId);
                 widget.configuration = originalWidget.configuration;
             });
+        } else {
+            this.state.widgets = [...this.modifiedWidgets];
         }
 
         this.state.configurationMode = false;

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -15,7 +15,6 @@ import { ConfigurationService } from '../../../../server/services/ConfigurationS
 import { RequestMethod } from '../../../../server/model/rest/RequestMethod';
 import { CacheService } from './cache';
 import { OptionsResponse } from '../../../../server/model/rest/OptionsResponse';
-import { ProfilingService } from '../../../../server/services/ProfilingService';
 import { LoggingService } from '../../../../server/services/LoggingService';
 import { Error } from '../../../../server/model/Error';
 import { KIXObjectType } from '../../model/kix/KIXObjectType';
@@ -25,6 +24,8 @@ import { AxiosAdapter, AxiosError, AxiosRequestConfig, AxiosResponse } from 'axi
 import { SocketAuthenticationError } from '../../../../server/model/SocketAuthenticationError';
 import { RequestCounter } from '../../../../server/services/RequestCounter';
 import { HTTPResponse } from './HTTPResponse';
+import { IncomingHttpHeaders } from 'http';
+import { HTTPRequestLogger } from '../../../../server/services/HTTPRequestLogger';
 
 export class HttpService {
 
@@ -146,7 +147,7 @@ export class HttpService {
 
     public async post<T>(
         resource: string, content: any, token: string, clientRequestId: string, cacheKeyPrefix: string = '',
-        logError: boolean = true, relevantOrganisationId?: number
+        logError: boolean = true, relevantOrganisationId?: number, headers?: IncomingHttpHeaders
     ): Promise<T> {
         const options: AxiosRequestConfig = {
             method: RequestMethod.POST,
@@ -154,7 +155,8 @@ export class HttpService {
             params: { RelevantOrganisationID: relevantOrganisationId }
         };
 
-        const response = await this.executeRequest(resource, token, clientRequestId, options, logError);
+
+        const response = await this.executeRequest(resource, token, clientRequestId, options, logError, headers);
         await CacheService.getInstance().deleteKeys(cacheKeyPrefix).catch(() => null);
         return response?.data;
     }
@@ -203,7 +205,8 @@ export class HttpService {
         };
 
         const user = await this.getUserByToken(token);
-        const cacheId = user.RoleIDs?.sort().join(';');
+        const usageContext = AuthenticationService.getInstance().getUsageContext(token);
+        const cacheId = user.RoleIDs?.sort().join(';') + usageContext;
 
         const cacheKey = cacheId + resource;
         const cacheType = collection === null || typeof collection === 'undefined' || collection
@@ -222,7 +225,11 @@ export class HttpService {
             }
 
             const request = this.requestPromises.get(cacheKey);
-            const response = await request;
+            const response = await request.catch((e) => {
+                this.requestPromises.delete(cacheKey);
+                throw e;
+            });
+
             headers = response.headers;
             await CacheService.getInstance().set(cacheKey, headers, cacheType);
             this.requestPromises.delete(cacheKey);
@@ -233,7 +240,7 @@ export class HttpService {
 
     private async executeRequest<T = AxiosResponse>(
         resource: string, token: string, clientRequestId: string, options: AxiosRequestConfig,
-        logError: boolean = true
+        logError: boolean = true, headers?: IncomingHttpHeaders
     ): Promise<T> {
         const backendToken = AuthenticationService.getInstance().getBackendToken(token);
 
@@ -244,10 +251,11 @@ export class HttpService {
         // extend options
         options.baseURL = this.apiURL;
         options.url = this.buildRequestUrl(resource);
-        options.headers = {
-            'Authorization': 'Token ' + backendToken,
-            'KIX-Request-ID': clientRequestId ? clientRequestId : ''
-        };
+
+        options.headers = headers || {};
+        options.headers['Authorization'] = 'Token ' + backendToken;
+        options.headers['KIX-Request-ID'] = clientRequestId ? clientRequestId : '';
+
         options.maxBodyLength = Infinity;
         options.maxContentLength = Infinity;
 
@@ -265,13 +273,9 @@ export class HttpService {
         }
 
         // start profiling
-        const profileTaskId = ProfilingService.getInstance().start(
-            'HttpService',
-            options.method + '\t' + resource + '\t' + parameter,
-            {
-                requestId: clientRequestId,
-                data: [options, parameter]
-            });
+        const profileTaskId = HTTPRequestLogger.getInstance().start(
+            options.method, resource, parameter
+        );
 
         let response: AxiosResponse | HTTPResponse = await this.axios(options).catch((error: AxiosError) => {
             if (logError) {
@@ -279,7 +283,7 @@ export class HttpService {
                     `Error during HTTP (${resource}) ${options.method} request.`, error
                 );
             }
-            ProfilingService.getInstance().stop(profileTaskId, { data: ['Error'] });
+            HTTPRequestLogger.getInstance().stop(profileTaskId, error);
             if (error?.response?.status === 403) {
                 throw new PermissionError(this.createError(error), resource, options.method);
             } else if (error?.response?.status === 401) {
@@ -289,7 +293,7 @@ export class HttpService {
             }
         });
 
-        ProfilingService.getInstance().stop(profileTaskId, { data: [response.data] });
+        HTTPRequestLogger.getInstance().stop(profileTaskId, response);
 
         if (options.method === 'GET') {
             const countHeaders: any = {};
@@ -362,13 +366,11 @@ export class HttpService {
         return key;
     }
 
-    public async getUserByToken(token: string, withStats?: boolean): Promise<User> {
+    public async getUserByToken(token: string): Promise<User> {
         const backendToken = AuthenticationService.getInstance().getBackendToken(token);
         const userId = AuthenticationService.getInstance().decodeToken(backendToken)?.UserID;
 
-        const cacheType = withStats
-            ? `${KIXObjectType.CURRENT_USER}_STATS_${userId}`
-            : `${KIXObjectType.CURRENT_USER}_${userId}`;
+        const cacheType = `${KIXObjectType.CURRENT_USER}_${userId}`;
 
         if (userId) {
             const user = await CacheService.getInstance().get(backendToken, cacheType);
@@ -383,18 +385,9 @@ export class HttpService {
         }
 
         const requestPromise = new Promise<User>(async (resolve, reject) => {
-            let params = {};
-
-            if (withStats) {
-                params = {
-                    'include': 'Tickets',
-                    'Tickets.StateType': 'Open'
-                };
-            } else {
-                params = {
-                    'include': 'Preferences,RoleIDs,Contact,DynamicFields'
-                };
-            }
+            const params = {
+                'include': 'Preferences,RoleIDs,Contact,DynamicFields'
+            };
 
             const options: AxiosRequestConfig = { method: RequestMethod.GET, params };
 
@@ -406,8 +399,8 @@ export class HttpService {
             };
 
             // start profiling
-            const profileTaskId = ProfilingService.getInstance().start(
-                'HttpService', options.method + '\t' + uri + '\t' + JSON.stringify(params), { data: [options] }
+            const profileTaskId = HTTPRequestLogger.getInstance().start(
+                options.method, uri, JSON.stringify(params)
             );
 
             const response = await this.axios(options)
@@ -415,7 +408,7 @@ export class HttpService {
                     LoggingService.getInstance().error(
                         `Error during HTTP (${uri}) ${options.method} request.`, error
                     );
-                    ProfilingService.getInstance().stop(profileTaskId, { data: ['Error'] });
+                    HTTPRequestLogger.getInstance().stop(profileTaskId, error);
                     if (error.response?.status === 403) {
                         throw new PermissionError(this.createError(error), uri, options.method);
                     } else {
@@ -424,7 +417,7 @@ export class HttpService {
                 });
 
             await CacheService.getInstance().set(backendToken, response.data['User'], cacheType);
-            ProfilingService.getInstance().stop(profileTaskId, { data: [response.data] });
+            HTTPRequestLogger.getInstance().stop(profileTaskId, response);
             this.requestPromises.delete(requestKey);
             resolve(response.data['User']);
         });

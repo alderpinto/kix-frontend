@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -9,10 +9,12 @@
 
 import { RowObject } from './RowObject';
 import { KIXObjectType } from '../../../model/kix/KIXObjectType';
+import { SortOrder } from '../../../model/SortOrder';
 
 export interface ITableContentProvider<T = any> {
 
     totalCount: number;
+    currentLimit: number;
 
     usePaging: boolean;
 
@@ -27,5 +29,11 @@ export interface ITableContentProvider<T = any> {
     destroy(): void;
 
     loadMore(): Promise<void>;
+
+    setSort(property: string, direction: SortOrder, reload?: boolean): Promise<void>;
+
+    isBackendSortSupported(): boolean
+
+    isBackendSortSupportedForProperty(property: string): Promise<boolean>;
 
 }

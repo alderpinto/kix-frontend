@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -72,6 +72,10 @@ export class ObjectFormValue<T = any> {
             this.value = object[property];
             this.createBindings(property, object);
         }
+    }
+
+    public getInitialState(property: string): any {
+        return this.initialState.get(property);
     }
 
     public setInitialState(): void {
@@ -215,7 +219,6 @@ export class ObjectFormValue<T = any> {
 
     public async disable(): Promise<void> {
         this.enabled = false;
-        this.visible = false;
         this.value = null;
     }
 
@@ -240,17 +243,26 @@ export class ObjectFormValue<T = any> {
     public async initFormValueByField(field: FormFieldConfiguration): Promise<void> {
         const isEdit = this.objectValueMapper.formContext === FormContext.EDIT;
 
+        const defaultValue = field.defaultValue?.value;
+        let hasDefaultValue = (typeof defaultValue !== 'undefined' && defaultValue !== null && defaultValue !== '');
+        if (Array.isArray(defaultValue)) {
+            hasDefaultValue = defaultValue.length > 0;
+        }
+
         if (field.empty) {
             this.setFormValue(null, true);
-        } else if ((!this.value || isEdit) && field.defaultValue?.value && !field.empty) {
+        } else if ((!this.value || isEdit) && hasDefaultValue && !field.empty) {
             const value = await this.handlePlaceholders(field.defaultValue?.value);
             this.setFormValue(value, true);
         }
 
         this.enabled = true;
         this.visible = field.visible;
+        this.setNewInitialState(FormValueProperty.VISIBLE, this.visible);
         this.readonly = field.readonly;
+        this.setNewInitialState(FormValueProperty.READ_ONLY, this.readonly);
         this.required = field.required;
+        this.setNewInitialState(FormValueProperty.REQUIRED, this.required);
         this.isSetInBackground = field.options.some((o) => o.option === 'set hidden') || this.parent?.isSetInBackground;
 
         if (field?.property !== KIXObjectProperty.DYNAMIC_FIELDS) {
@@ -280,14 +292,14 @@ export class ObjectFormValue<T = any> {
         }
     }
 
-    protected async handlePlaceholders(value: any): Promise<any> {
+    protected async handlePlaceholders(value: any, forRichtext?: boolean): Promise<any> {
         if (value) {
 
             const placeholderObject = this.objectValueMapper?.sourceObject || this.objectValueMapper?.object;
 
             if (typeof value === 'string' && PlaceholderService.getInstance().extractPlaceholders(value)) {
                 const newValue = await PlaceholderService.getInstance().replacePlaceholders(
-                    value, placeholderObject
+                    value, placeholderObject, null, forRichtext
                 );
                 value = newValue as any || null;
             } else if (Array.isArray(value)) {
@@ -352,8 +364,11 @@ export class ObjectFormValue<T = any> {
     }
 
     protected isSameValue(value: any): boolean {
+        if (
+            !this.hasValue(this.value) &&
+            !this.hasValue(value)
+        ) return true;
         let isSameValue = false;
-
         if (Array.isArray(this.value) && Array.isArray(value)) {
             isSameValue = this.value.length === value.length;
             if (isSameValue) {
@@ -366,13 +381,24 @@ export class ObjectFormValue<T = any> {
         return isSameValue;
     }
 
+    protected hasValue(value: any): boolean {
+        if (value !== 0 && (!value || Array.isArray(value) && !value.length)) return false;
+        if (Array.isArray(value) && value.length) {
+            let hasValue = false;
+            value.forEach((v) => {
+                hasValue = hasValue || this.hasValue(v);
+            });
+            return hasValue;
+        }
+        return true;
+    }
+
     public removeValue(value: any): void {
         this.setFormValue(null);
     }
 
     public async setPossibleValues(values: T[]): Promise<void> {
         this.possibleValues = Array.isArray(values) ? values : values ? [values] : [];
-        await this.applyPossibleValues();
     }
 
     public async addPossibleValues(values: T[]): Promise<void> {
@@ -387,8 +413,6 @@ export class ObjectFormValue<T = any> {
                 }
             }
         }
-
-        await this.applyPossibleValues();
     }
 
     public async removePossibleValues(values: T[]): Promise<void> {
@@ -401,8 +425,6 @@ export class ObjectFormValue<T = any> {
         } else {
             this.forbiddenValues = values;
         }
-
-        await this.applyPossibleValues();
     }
 
     public setValidationResult(validationResult: ValidationResult[] = []): void {
@@ -444,6 +466,10 @@ export class ObjectFormValue<T = any> {
         formValue: ObjectFormValue, objectValueMapper: ObjectFormValueMapper
     ) => FormValueAction> {
         return;
+    }
+
+    public async update(): Promise<void> {
+        await this.applyPossibleValues();
     }
 
 }

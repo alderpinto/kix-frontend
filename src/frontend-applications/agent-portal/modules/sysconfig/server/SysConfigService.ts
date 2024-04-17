@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -180,15 +180,15 @@ export class SysConfigService extends KIXObjectAPIService {
         return [];
     }
 
-    public async getAgentPortalConfiguration(token: string): Promise<AgentPortalConfiguration> {
-        const configs = await this.loadObjects<SysConfigOption>(
+    public async getPortalConfiguration(token: string): Promise<AgentPortalConfiguration> {
+        const response = await this.loadObjects<SysConfigOption>(
             token, '', KIXObjectType.SYS_CONFIG_OPTION, [AgentPortalConfiguration.CONFIGURATION_ID], null, null
-        ).catch((): SysConfigOption[] => []);
+        ).catch((): ObjectResponse<SysConfigOption> => new ObjectResponse([]));
 
         let config: AgentPortalConfiguration = new AgentPortalConfiguration();
-        if (Array.isArray(configs) && configs.length) {
+        if (response?.objects?.length) {
             try {
-                config = JSON.parse(configs[0].Value);
+                config = JSON.parse(response?.objects[0].Value);
             } catch (error) {
                 LoggingService.getInstance().error(error);
             }

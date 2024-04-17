@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -28,6 +28,8 @@ import { FormEvent } from '../../../base-components/webapp/core/FormEvent';
 import { FormValuesChangedEventData } from '../../../base-components/webapp/core/FormValuesChangedEventData';
 import { MacroFieldCreator } from './MacroFieldCreator';
 import { MacroObjectCreator } from './MacroObjectCreator';
+import { TranslationService } from '../../../translation/webapp/core/TranslationService';
+import { AdditionalContextInformation } from '../../../base-components/webapp/core/AdditionalContextInformation';
 
 export class JobFormService extends KIXObjectFormService {
 
@@ -96,7 +98,9 @@ export class JobFormService extends KIXObjectFormService {
         form.pages = [];
         form.pages.push(AbstractJobFormManager.getJobPage(formInstance));
 
-        if (form.pages.length && job && form.formContext === FormContext.EDIT) {
+        const context = ContextService.getInstance().getActiveContext();
+        const duplicate = context?.getAdditionalInformation(AdditionalContextInformation.DUPLICATE);
+        if (form.pages.length && job && (form.formContext === FormContext.EDIT || duplicate)) {
             const manager = this.getJobFormManager(job.Type);
             manager.job = job;
 
@@ -122,10 +126,45 @@ export class JobFormService extends KIXObjectFormService {
         property: string, value: any, job: Job, formField: FormFieldConfiguration, formContext: FormContext
     ): Promise<any> {
         if (job) {
-            const manager = this.getJobFormManager(job.Type);
-            value = await manager.getValue(property, formField, value, job, formContext);
+            const context = ContextService.getInstance().getActiveContext();
+            const duplicate = context?.getAdditionalInformation(AdditionalContextInformation.DUPLICATE);
+            if (property === JobProperty.NAME && formContext === FormContext.NEW && duplicate) {
+                const actionName = await TranslationService.translate(
+                    'Translatable#Copy of {0}', [value]
+                );
+                value = actionName;
+            } else {
+                const manager = this.getJobFormManager(job.Type);
+                value = await manager.getValue(property, formField, value, job, formContext);
+            }
         }
         return value;
+    }
+
+    protected async postPrepareForm(
+        form: FormConfiguration, formInstance: FormInstance, formFieldValues, job: Job
+    ): Promise<void> {
+
+        const context = ContextService.getInstance().getActiveContext();
+        const duplicate = context?.getAdditionalInformation(AdditionalContextInformation.DUPLICATE);
+        if (form.formContext === FormContext.EDIT || duplicate) {
+            // add additional filter fields and set filter values
+            if (Array.isArray(job.Filter) && job.Filter.length) {
+                const formField = formInstance.getFormFieldByProperty(JobProperty.FILTER);
+                const fieldPromises = [];
+                if (formField) {
+                    for (let i = 1; i < job.Filter.length; i++) {
+                        fieldPromises.push(formInstance.duplicateAndAddNewField(formField));
+                    }
+                }
+                await Promise.all(fieldPromises);
+                const filterFields = formInstance.getFormFieldsByProperty(JobProperty.FILTER);
+                const values: [string, any][] = filterFields.map((f, index) => {
+                    return [f.instanceId, job.Filter[index]];
+                });
+                formInstance.provideFormFieldValues(values, undefined, true, false);
+            }
+        }
     }
 
     public async getNewFormField(
@@ -167,6 +206,19 @@ export class JobFormService extends KIXObjectFormService {
     ): Promise<Array<[string, any]>> {
         parameter = parameter.filter((p) => !p[0].startsWith('###MACRO###'));
         parameter = parameter.filter((p) => p[0] !== JobProperty.MACROS || p[1] !== null);
+
+        // collect all filter values
+        const filterParameter = parameter.filter((p) => p[0] === JobProperty.FILTER);
+        parameter = parameter.filter((p) => p[0] !== JobProperty.FILTER);
+        const filter = [];
+        filterParameter.forEach((fp) => {
+            if (Array.isArray(fp[1]) && fp[1].length) {
+                filter.push(fp[1]);
+            }
+        });
+        // sort filter, to get same result if no changes were made (and "biggest" filter comes first)
+        parameter.push([JobProperty.FILTER, filter.sort().reverse()]);
+
         return super.postPrepareValues(parameter, createOptions, formContext, formInstance);
     }
 

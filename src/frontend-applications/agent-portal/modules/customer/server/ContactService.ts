@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -24,17 +24,15 @@ import { Error } from '../../../../../server/model/Error';
 import { UserProperty } from '../../user/model/UserProperty';
 import { UserService } from '../../user/server/UserService';
 import { KIXObjectProperty } from '../../../model/kix/KIXObjectProperty';
-import { PersonalSettingsProperty } from '../../user/model/PersonalSettingsProperty';
 import { Contact } from '../model/Contact';
 import { SearchOperator } from '../../search/model/SearchOperator';
 import { ObjectIcon } from '../../icon/model/ObjectIcon';
 import { FilterDataType } from '../../../model/FilterDataType';
 import { FilterType } from '../../../model/FilterType';
 import { SearchProperty } from '../../search/model/SearchProperty';
-import { CacheService } from '../../../server/services/cache';
-import { ConfigurationService } from '../../../../../server/services/ConfigurationService';
 import { KIXObject } from '../../../model/kix/KIXObject';
 import { ObjectResponse } from '../../../server/services/ObjectResponse';
+import { PersonalSettingsProperty } from '../../user/model/PersonalSettingsProperty';
 
 export class ContactAPIService extends KIXObjectAPIService {
 
@@ -62,40 +60,13 @@ export class ContactAPIService extends KIXObjectAPIService {
         return kixObjectType === KIXObjectType.CONTACT;
     }
 
-    protected getObjectClass(objectType: KIXObjectType | string): new (object: KIXObject) => KIXObject {
+    public getObjectClass(objectType: KIXObjectType | string): new (object: KIXObject) => KIXObject {
         let objectClass;
 
         if (objectType === KIXObjectType.CONTACT) {
             objectClass = Contact;
         }
         return objectClass;
-    }
-
-    public async loadDisplayValue(objectType: KIXObjectType | string, objectId: string | number): Promise<string> {
-        let displayValue = '';
-
-        if (objectType === KIXObjectType.CONTACT) {
-            const cacheKey = `${objectType}-${objectId}-displayvalue`;
-            displayValue = await CacheService.getInstance().get(cacheKey, objectType);
-            if (!displayValue && objectId) {
-                const loadingOptions = new KIXObjectLoadingOptions();
-                loadingOptions.includes = [ContactProperty.USER];
-
-                const config = ConfigurationService.getInstance().getServerConfiguration();
-                const objectResponse = await this.loadObjects<Contact>(
-                    config?.BACKEND_API_TOKEN, 'ContactAPIService', objectType, [objectId], loadingOptions
-                );
-
-                const contacts = objectResponse?.objects || [];
-                if (contacts?.length) {
-                    const contact = new Contact(contacts[0]);
-                    displayValue = contact.toString();
-                    await CacheService.getInstance().set(cacheKey, displayValue, objectType);
-                }
-            }
-        }
-
-        return displayValue;
     }
 
     public async loadObjects<T>(
@@ -121,7 +92,7 @@ export class ContactAPIService extends KIXObjectAPIService {
 
                 if (Array.isArray(objectIds) && objectIds.length) {
                     objectResponse.objects = objectResponse.objects?.filter(
-                        (o) => objectIds.some((oid) => Number(oid) === o.ID)
+                        (o) => objectIds.some((oid) => Number(oid) === Number(o.ID))
                     );
                 }
             }
@@ -135,13 +106,9 @@ export class ContactAPIService extends KIXObjectAPIService {
     ): Promise<string> {
 
         const userParameter = this.getUserParameters(parameter);
+        this.prepareOrganisationIdsParameter(parameter);
 
-        const contactParameter = parameter.filter(
-            (p) => !userParameter.some((up) => up[0] === p[0]) || p[0] === KIXObjectProperty.VALID_ID
-        );
-        this.prepareOrganisationIdsParameter(contactParameter);
-
-        const createContact = new CreateContact(contactParameter);
+        const createContact = new CreateContact(parameter);
         const response = await this.sendCreateRequest<CreateContactResponse, CreateContactRequest>(
             token, clientRequestId, this.RESOURCE_URI, new CreateContactRequest(createContact),
             this.objectType
@@ -151,7 +118,7 @@ export class ContactAPIService extends KIXObjectAPIService {
         });
 
         let userId;
-        if (userParameter.length) {
+        if (userParameter.length && userParameter.some((up) => up[0] === UserProperty.USER_LOGIN)) {
             const assignedUserId = this.getParameterValue(parameter, ContactProperty.ASSIGNED_USER_ID);
             userId = await this.createOrUpdateUser(token, clientRequestId, userParameter, assignedUserId).catch(
                 (error: Error) => {
@@ -203,7 +170,7 @@ export class ContactAPIService extends KIXObjectAPIService {
             ).catch((error) => {
                 throw new Error(error.Code, error.Message);
             });
-        } else if (isAgent || isCustomer) {
+        } else {
             userId = await UserService.getInstance().createObject(
                 token, clientRequestId, KIXObjectType.USER, parameter
             ).catch((error) => {
@@ -219,7 +186,7 @@ export class ContactAPIService extends KIXObjectAPIService {
     ): Promise<string | number> {
         let userId;
         const userParameter = this.getUserParameters(parameter);
-        if (userParameter.length) {
+        if (userParameter.length > 1) {
             const assignedUserId = this.getParameterValue(parameter, ContactProperty.ASSIGNED_USER_ID);
             userId = await this.createOrUpdateUser(token, clientRequestId, userParameter, assignedUserId).catch(
                 (error: Error) => {
@@ -236,11 +203,8 @@ export class ContactAPIService extends KIXObjectAPIService {
             }
         }
 
-        const contactParameter = parameter.filter(
-            (p) => !userParameter.some((up) => up[0] === p[0]) || p[0] === KIXObjectProperty.VALID_ID
-        );
-        this.prepareOrganisationIdsParameter(contactParameter);
-        const updateContact = new UpdateContact(contactParameter);
+        this.prepareOrganisationIdsParameter(parameter);
+        const updateContact = new UpdateContact(parameter);
 
         const response = await this.sendUpdateRequest<UpdateContactResponse, UpdateContactRequest>(
             token, clientRequestId, this.buildUri(this.RESOURCE_URI, objectId), new UpdateContactRequest(updateContact),
@@ -264,18 +228,24 @@ export class ContactAPIService extends KIXObjectAPIService {
     }
 
     private getUserParameters(parameter: Array<[string, any]>): Array<[string, any]> {
-        return parameter.filter((p) =>
-            p[0] === UserProperty.USER_LOGIN ||
-            p[0] === UserProperty.USER_PASSWORD ||
-            p[0] === UserProperty.USER_COMMENT ||
-            p[0] === UserProperty.USER_ACCESS ||
-            p[0] === UserProperty.IS_AGENT ||
-            p[0] === UserProperty.IS_CUSTOMER ||
-            p[0] === UserProperty.ROLE_IDS ||
-            p[0] === PersonalSettingsProperty.MY_QUEUES ||
-            p[0] === PersonalSettingsProperty.NOTIFICATIONS ||
-            p[0] === PersonalSettingsProperty.USER_LANGUAGE
-        );
+        const userParameter = this.getParameterValue(parameter, 'User');
+        if (userParameter) {
+            return Object.entries(userParameter);
+        } else {
+            return parameter.filter((p) =>
+                p[0] === UserProperty.USER_LOGIN ||
+                p[0] === UserProperty.USER_PASSWORD ||
+                p[0] === UserProperty.USER_COMMENT ||
+                p[0] === UserProperty.USER_ACCESS ||
+                p[0] === UserProperty.IS_AGENT ||
+                p[0] === UserProperty.IS_CUSTOMER ||
+                p[0] === UserProperty.ROLE_IDS ||
+                p[0] === PersonalSettingsProperty.MY_QUEUES ||
+                p[0] === PersonalSettingsProperty.NOTIFICATIONS ||
+                p[0] === PersonalSettingsProperty.USER_LANGUAGE ||
+                p[0] === KIXObjectProperty.VALID_ID // use contact valid also as user valid
+            );
+        }
     }
 
     private prepareOrganisationIdsParameter(parameter: Array<[string, any]>): void {
@@ -299,45 +269,22 @@ export class ContactAPIService extends KIXObjectAPIService {
     }
 
     public async prepareAPIFilter(criteria: FilterCriteria[], token: string): Promise<FilterCriteria[]> {
-        const filterCriteria = criteria.filter(
-            (f) => !this.isUserProperty(f.property)
-        );
-
-        return filterCriteria;
+        // TODO: allow nothing at the moment, maybe filter not needed anymore
+        return [];
     }
 
     public async prepareAPISearch(criteria: FilterCriteria[], token: string): Promise<FilterCriteria[]> {
-        let searchCriteria = criteria.filter((f) =>
-            f.property !== ContactProperty.PRIMARY_ORGANISATION_ID &&
-            f.property !== SearchProperty.PRIMARY &&
-            (
-                f.operator !== SearchOperator.IN ||
-                f.property === ContactProperty.EMAIL ||
-                f.property === KIXObjectProperty.VALID_ID
-            )
-        );
+        const searchCriteria = criteria.filter((f) => f.property !== SearchProperty.PRIMARY);
 
         const primary = criteria.find((f) => f.property === SearchProperty.PRIMARY);
         if (primary) {
-            const primarySearch = [
-                new FilterCriteria(
-                    ContactProperty.EMAIL, SearchOperator.LIKE,
-                    FilterDataType.STRING, FilterType.OR, `${primary.value}`
-                ),
-            ];
-            searchCriteria = [...searchCriteria, ...primarySearch];
-        }
-
-        const loginProperty = searchCriteria.find((sc) => sc.property === UserProperty.USER_LOGIN);
-        if (loginProperty) {
-            loginProperty.property = 'Login';
+            const primarySearch = new FilterCriteria(
+                ContactProperty.EMAILS, SearchOperator.LIKE,
+                FilterDataType.STRING, FilterType.OR, primary.value
+            );
+            searchCriteria.push(primarySearch);
         }
 
         return searchCriteria;
-    }
-
-    private isUserProperty(property: string): boolean {
-        const userProperties = Object.keys(UserProperty).map((p) => UserProperty[p]);
-        return userProperties.some((p) => p === property);
     }
 }

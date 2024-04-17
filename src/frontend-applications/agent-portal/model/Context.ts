@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -7,35 +7,37 @@
  * --
  */
 
-import { IContextListener } from '../modules/base-components/webapp/core/IContextListener';
-import { KIXObjectType } from './kix/KIXObjectType';
-import { KIXObject } from './kix/KIXObject';
-import { ContextDescriptor } from './ContextDescriptor';
-import { ContextConfiguration } from './configuration/ContextConfiguration';
+import { AbstractAction } from '../modules/base-components/webapp/core/AbstractAction';
 import { AdditionalContextInformation } from '../modules/base-components/webapp/core/AdditionalContextInformation';
-import { ConfiguredWidget } from './configuration/ConfiguredWidget';
-import { WidgetConfiguration } from './configuration/WidgetConfiguration';
-import { WidgetType } from './configuration/WidgetType';
-import { ContextMode } from './ContextMode';
+import { ApplicationEvent } from '../modules/base-components/webapp/core/ApplicationEvent';
+import { AuthenticationSocketClient } from '../modules/base-components/webapp/core/AuthenticationSocketClient';
+import { ClientStorageService } from '../modules/base-components/webapp/core/ClientStorageService';
+import { ContextEvents } from '../modules/base-components/webapp/core/ContextEvents';
+import { ContextService } from '../modules/base-components/webapp/core/ContextService';
+import { EventService } from '../modules/base-components/webapp/core/EventService';
+import { IContextListener } from '../modules/base-components/webapp/core/IContextListener';
+import { IEventSubscriber } from '../modules/base-components/webapp/core/IEventSubscriber';
 import { KIXObjectService } from '../modules/base-components/webapp/core/KIXObjectService';
 import { ObjectIcon } from '../modules/icon/model/ObjectIcon';
-import { EventService } from '../modules/base-components/webapp/core/EventService';
-import { ApplicationEvent } from '../modules/base-components/webapp/core/ApplicationEvent';
-import { ClientStorageService } from '../modules/base-components/webapp/core/ClientStorageService';
+import { TableFactoryService } from '../modules/table/webapp/core/factory/TableFactoryService';
+import { TranslationService } from '../modules/translation/webapp/core/TranslationService';
+import { AgentService } from '../modules/user/webapp/core/AgentService';
+import { ConfiguredWidget } from './configuration/ConfiguredWidget';
+import { ContextConfiguration } from './configuration/ContextConfiguration';
+import { TableConfiguration } from './configuration/TableConfiguration';
+import { WidgetConfiguration } from './configuration/WidgetConfiguration';
+import { WidgetType } from './configuration/WidgetType';
+import { ContextDescriptor } from './ContextDescriptor';
+import { ContextExtension } from './ContextExtension';
+import { ContextFormManager } from './ContextFormManager';
+import { ContextMode } from './ContextMode';
+import { ContextPreference } from './ContextPreference';
+import { ContextStorageManager } from './ContextStorageManager';
+import { IdService } from './IdService';
+import { KIXObject } from './kix/KIXObject';
+import { KIXObjectType } from './kix/KIXObjectType';
 import { KIXObjectLoadingOptions } from './KIXObjectLoadingOptions';
 import { KIXObjectSpecificLoadingOptions } from './KIXObjectSpecificLoadingOptions';
-import { ContextService } from '../modules/base-components/webapp/core/ContextService';
-import { AbstractAction } from '../modules/base-components/webapp/core/AbstractAction';
-import { AuthenticationSocketClient } from '../modules/base-components/webapp/core/AuthenticationSocketClient';
-import { ContextFormManager } from './ContextFormManager';
-import { IdService } from './IdService';
-import { TranslationService } from '../modules/translation/webapp/core/TranslationService';
-import { ContextStorageManager } from './ContextStorageManager';
-import { ContextEvents } from '../modules/base-components/webapp/core/ContextEvents';
-import { ContextPreference } from './ContextPreference';
-import { AgentService } from '../modules/user/webapp/core/AgentService';
-import { IEventSubscriber } from '../modules/base-components/webapp/core/IEventSubscriber';
-import { ContextExtension } from './ContextExtension';
 
 export abstract class Context {
 
@@ -52,16 +54,19 @@ export abstract class Context {
 
     protected objectLists: Map<KIXObjectType | string, KIXObject[]> = new Map();
     protected filteredObjectLists: Map<KIXObjectType | string, KIXObject[]> = new Map();
+    protected defaultPageSize: number = 20;
 
-    private scrollInormation: [KIXObjectType | string, string | number] = null;
+    private scrollInformation: [KIXObjectType | string, string | number] = null;
     protected displayText: string;
     protected icon: ObjectIcon | string;
 
-    private eventSubsriber: IEventSubscriber;
+    private eventSubscriber: IEventSubscriber;
 
     public contextExtensions: ContextExtension[] = [];
 
     public initialized: boolean = false;
+
+    private objectSorts: Map<string, [string, boolean]> = new Map();
 
     public constructor(
         public descriptor: ContextDescriptor,
@@ -100,16 +105,24 @@ export abstract class Context {
 
             this.contextId = descriptor.contextId;
 
-            this.eventSubsriber = {
+            this.eventSubscriber = {
                 eventSubscriberId: this.instanceId,
                 eventPublished: async (data: any, eventId: string): Promise<void> => {
-                    const contextUpdateRequired = eventId === ContextEvents.CONTEXT_UPDATE_REQUIRED &&
-                        data?.instanceId === this.instanceId;
-
-                    const objectUpdate = eventId === ApplicationEvent.OBJECT_UPDATED && data?.objectType;
-
                     if (this.descriptor.contextMode !== ContextMode.SEARCH) {
-                        if (objectUpdate) {
+                        const contextUpdateRequired = eventId === ContextEvents.CONTEXT_UPDATE_REQUIRED &&
+                            data?.instanceId === this.instanceId;
+
+                        const objectUpdate = eventId === ApplicationEvent.OBJECT_UPDATED && data?.objectType;
+                        const objectDelete = eventId === ApplicationEvent.OBJECT_DELETED && data?.objectType;
+                        const reloadObjectList = eventId === ContextEvents.CONTEXT_USER_WIDGETS_CHANGED &&
+                            Array.isArray(data?.widgets) &&
+                            Array.isArray(this.configuration?.tableWidgetInstanceIds);
+
+                        TableFactoryService.getInstance().deleteContextTables(
+                            this.contextId, data?.objectType, eventId !== ContextEvents.CONTEXT_USER_WIDGETS_CHANGED
+                        );
+
+                        if (objectUpdate || objectDelete) {
                             if (this.objectLists.has(data.objectType)) {
                                 this.deleteObjectList(data.objectType);
                             }
@@ -124,19 +137,54 @@ export abstract class Context {
 
                         } else if (contextUpdateRequired) {
                             this.deleteObjectLists();
+                        } else if (reloadObjectList) {
+                            this.reloadRelevantObjectLists(data.widgets);
                         }
                     }
                 }
             };
 
-            EventService.getInstance().subscribe(ApplicationEvent.OBJECT_UPDATED, this.eventSubsriber);
-            EventService.getInstance().subscribe(ContextEvents.CONTEXT_UPDATE_REQUIRED, this.eventSubsriber);
+            EventService.getInstance().subscribe(ApplicationEvent.OBJECT_UPDATED, this.eventSubscriber);
+            EventService.getInstance().subscribe(ApplicationEvent.OBJECT_DELETED, this.eventSubscriber);
+            EventService.getInstance().subscribe(ContextEvents.CONTEXT_UPDATE_REQUIRED, this.eventSubscriber);
+            EventService.getInstance().subscribe(ContextEvents.CONTEXT_USER_WIDGETS_CHANGED, this.eventSubscriber);
         }
     }
 
+    private reloadRelevantObjectLists(widgets: ConfiguredWidget[]): void {
+        const objectTypes = [];
+        widgets?.forEach((w) => {
+            const objectType = this.getObjectTypeFromConfig(w.configuration);
+            if (objectType && !objectTypes.some((ot) => ot === objectType)) {
+                objectTypes.push(objectType);
+            }
+        });
+        if (objectTypes.length) {
+            this.configuration.tableWidgetInstanceIds.forEach((mapping) => {
+                if (Array.isArray(mapping) && objectTypes.some((ot) => ot === mapping[0])) {
+                    this.reloadObjectList(mapping[0]);
+                }
+            });
+        }
+    }
+
+    private getObjectTypeFromConfig(config): KIXObjectType {
+        let objectType;
+        if (config) {
+            if (config['objectType']) {
+                objectType = config['objectType'];
+            } else {
+                objectType = this.getObjectTypeFromConfig(config.configuration);
+            }
+        }
+        return objectType;
+    }
+
     public async destroy(): Promise<void> {
-        EventService.getInstance().unsubscribe(ApplicationEvent.OBJECT_UPDATED, this.eventSubsriber);
-        EventService.getInstance().unsubscribe(ContextEvents.CONTEXT_UPDATE_REQUIRED, this.eventSubsriber);
+        EventService.getInstance().unsubscribe(ApplicationEvent.OBJECT_UPDATED, this.eventSubscriber);
+        EventService.getInstance().unsubscribe(ApplicationEvent.OBJECT_DELETED, this.eventSubscriber);
+        EventService.getInstance().unsubscribe(ContextEvents.CONTEXT_UPDATE_REQUIRED, this.eventSubscriber);
+        EventService.getInstance().unsubscribe(ContextEvents.CONTEXT_USER_WIDGETS_CHANGED, this.eventSubscriber);
 
         await this.formManager?.destroy();
 
@@ -306,7 +354,9 @@ export abstract class Context {
             return list.value;
         }
 
-        // await this.reloadObjectList(objectType, undefined, limit);
+        if (!this.hasObjectList(objectType)) {
+            await this.reloadObjectList(objectType, undefined, limit);
+        }
 
         return this.objectLists.get(objectType) as any[];
     }
@@ -390,7 +440,10 @@ export abstract class Context {
             );
         }
 
-        const userWidgets = await this.getUserWidgetList('content');
+        let userWidgets = [];
+        if (this.configuration.customizable) {
+            userWidgets = await this.getUserWidgetList('content');
+        }
         const widgets = this.mergeWidgetLists(content, userWidgets);
 
         const allowedWidgets = await this.filterAllowedWidgets(widgets);
@@ -436,17 +489,19 @@ export abstract class Context {
 
     private async getUserWidgetList(contextWidgetList: string): Promise<Array<string | ConfiguredWidget>> {
         let widgets: ConfiguredWidget[] = [];
-        const currentUser = await AgentService.getInstance().getCurrentUser();
-        const widgetListPreference = currentUser.Preferences.find((p) => p.ID === 'ContextWidgetLists');
-        if (widgetListPreference && widgetListPreference.Value) {
-            try {
-                const value = JSON.parse(widgetListPreference.Value);
-                const contextLists = value[this.descriptor.contextId];
-                if (contextLists) {
-                    widgets = contextLists[contextWidgetList] || [];
+        if (this.configuration?.customizable) {
+            const currentUser = await AgentService.getInstance().getCurrentUser();
+            const widgetListPreference = currentUser.Preferences.find((p) => p.ID === 'ContextWidgetLists');
+            if (widgetListPreference && widgetListPreference.Value) {
+                try {
+                    const value = JSON.parse(widgetListPreference.Value);
+                    const contextLists = value[this.descriptor.contextId];
+                    if (contextLists) {
+                        widgets = contextLists[contextWidgetList] || [];
+                    }
+                } catch (error) {
+                    console.error(error);
                 }
-            } catch (error) {
-                console.error(error);
             }
         }
 
@@ -563,23 +618,25 @@ export abstract class Context {
     private async getUserWidgetConfiguration(instanceId: string): Promise<ConfiguredWidget> {
         let widget: ConfiguredWidget;
 
-        const currentUser = await AgentService.getInstance().getCurrentUser();
-        const widgetListPreference = currentUser.Preferences.find((p) => p.ID === 'ContextWidgetLists');
-        if (widgetListPreference && widgetListPreference.Value) {
-            const value = JSON.parse(widgetListPreference.Value);
-            const contextLists = value[this.descriptor.contextId];
-            if (contextLists) {
-                for (const contextWidgetList in contextLists) {
-                    if (Array.isArray(contextLists[contextWidgetList])) {
-                        const widgets: Array<string | ConfiguredWidget> = contextLists[contextWidgetList];
+        if (this.configuration?.customizable) {
+            const currentUser = await AgentService.getInstance().getCurrentUser();
+            const widgetListPreference = currentUser.Preferences.find((p) => p.ID === 'ContextWidgetLists');
+            if (widgetListPreference && widgetListPreference.Value) {
+                const value = JSON.parse(widgetListPreference.Value);
+                const contextLists = value[this.descriptor.contextId];
+                if (contextLists) {
+                    for (const contextWidgetList in contextLists) {
+                        if (Array.isArray(contextLists[contextWidgetList])) {
+                            const widgets: Array<string | ConfiguredWidget> = contextLists[contextWidgetList];
 
-                        widget = widgets
-                            .filter((w) => typeof w !== 'string')
-                            .map((w): ConfiguredWidget => w as ConfiguredWidget)
-                            .find((w) => w.instanceId === instanceId);
+                            widget = widgets
+                                .filter((w) => typeof w !== 'string')
+                                .map((w): ConfiguredWidget => w as ConfiguredWidget)
+                                .find((w) => w.instanceId === instanceId);
 
-                        if (widget) {
-                            break;
+                            if (widget) {
+                                break;
+                            }
                         }
                     }
                 }
@@ -635,15 +692,19 @@ export abstract class Context {
     }
 
     public provideScrollInformation(objectType: KIXObjectType | string, objectId: string | number): void {
-        this.scrollInormation = [objectType, objectId];
+        this.scrollInformation = [objectType, objectId];
 
-        this.listeners.forEach((l) => l.scrollInformationChanged(this.scrollInormation[0], this.scrollInormation[1]));
+        this.listeners.forEach((l) => l.scrollInformationChanged(this.scrollInformation[0], this.scrollInformation[1]));
     }
 
     public async reloadObjectList(
         objectType: KIXObjectType | string, silent: boolean = false, limit?: number
     ): Promise<void> {
-        return;
+        const reloadPromises = [];
+        this.contextExtensions.forEach((ce) => {
+            reloadPromises.push(ce.reloadObjectList(objectType, this, silent, limit));
+        });
+        await Promise.allSettled(reloadPromises);
     }
 
     private loadingPromise: Promise<any>;
@@ -710,12 +771,158 @@ export abstract class Context {
 
         objectId = objectId ? objectId.toString() : null;
         const contextObjectId = this.getObjectId() ? this.getObjectId().toString() : null;
-        if (contextId.includes('new') &&
+        if (contextId?.includes('new') &&
             this.descriptor.contextId === contextId &&
             !objectId && !contextObjectId
         ) return false;
 
         return contextId === this.descriptor.contextId && objectId === contextObjectId;
+    }
+
+    public async prepareContextLoadingOptions(
+        type: KIXObjectType | string, loadingOptions: KIXObjectLoadingOptions
+    ): Promise<void> {
+        loadingOptions.filter ||= [];
+        loadingOptions.includes ||= [];
+        loadingOptions.expands ||= [];
+        loadingOptions.query ||= [];
+
+        const contextLoadingOptions = this.getContextLoadingOptions(type);
+        if (contextLoadingOptions) {
+            if (Array.isArray(contextLoadingOptions.filter)) {
+                loadingOptions.filter.push(...contextLoadingOptions.filter);
+            }
+
+            if (Array.isArray(contextLoadingOptions.includes)) {
+                loadingOptions.includes.push(...contextLoadingOptions.includes);
+            }
+
+            if (Array.isArray(contextLoadingOptions.expands)) {
+                loadingOptions.expands.push(...contextLoadingOptions.expands);
+            }
+
+            if (Array.isArray(contextLoadingOptions.query)) {
+                loadingOptions.query = contextLoadingOptions.query;
+            }
+        }
+
+        // if no limit given - e.g. initial call, use configurations, else it will possible
+        // be set because of load more
+        if (typeof loadingOptions.limit === 'undefined' || loadingOptions.limit === null) {
+            loadingOptions.limit = await this.getPageSize(type);
+        }
+
+        const searchLimit = await this.getSearchLimit(type);
+        if (typeof searchLimit !== 'undefined') {
+            loadingOptions.searchLimit = searchLimit;
+        }
+
+        const sortOrder = await this.getSortOrder(type);
+        if (sortOrder) {
+            loadingOptions.sortOrder = sortOrder;
+        }
+    }
+
+    public async getPageSize(type: KIXObjectType | string): Promise<number> {
+        const tableLoadingOptions = await this.getTableLoadingOptions(type);
+        if (tableLoadingOptions?.limit !== null && typeof tableLoadingOptions?.limit !== 'undefined') {
+            return tableLoadingOptions.limit;
+        }
+
+        const contextLoadingOptions = this.getContextLoadingOptions(type);
+        if (contextLoadingOptions?.limit !== null && typeof contextLoadingOptions?.limit !== 'undefined') {
+            return contextLoadingOptions.limit;
+        }
+
+        return this.defaultPageSize;
+    }
+
+    public async getSearchLimit(type: KIXObjectType | string): Promise<number> {
+        const tableLoadingOptions = await this.getTableLoadingOptions(type);
+        if (tableLoadingOptions?.searchLimit !== null && typeof tableLoadingOptions?.searchLimit !== 'undefined') {
+            return tableLoadingOptions.searchLimit;
+        }
+
+        const contextLoadingOptions = this.getContextLoadingOptions(type);
+        if (contextLoadingOptions?.searchLimit !== null && typeof contextLoadingOptions?.searchLimit !== 'undefined') {
+            return contextLoadingOptions.searchLimit;
+        }
+
+        return;
+    }
+
+    private async getTableLoadingOptions(type: KIXObjectType | string): Promise<KIXObjectLoadingOptions> {
+        let loadingOptions;
+        if (type && Array.isArray(this.configuration.tableWidgetInstanceIds)) {
+            const configuredTableWidgetInstanceId = this.configuration.tableWidgetInstanceIds.find(
+                (mapping) => mapping[0] === type
+            );
+            if (Array.isArray(configuredTableWidgetInstanceId) && configuredTableWidgetInstanceId[1]) {
+                const configuredWidget = await this.getConfiguredWidget(configuredTableWidgetInstanceId[1]);
+                if (configuredWidget) {
+                    const tableConfig = configuredWidget.configuration?.configuration?.configuration;
+                    loadingOptions = tableConfig ? (tableConfig as TableConfiguration).loadingOptions : undefined;
+                }
+            }
+        }
+        return loadingOptions;
+    }
+
+    private getContextLoadingOptions(type: string): KIXObjectLoadingOptions {
+        let contextLoadingOptions: KIXObjectLoadingOptions;
+
+        if (type && Array.isArray(this.configuration?.loadingOptions)) {
+            const clo = this.configuration.loadingOptions.find((lo) => Array.isArray(lo) && lo[0] === type);
+            contextLoadingOptions = Array.isArray(clo) ? clo[1] : null;
+        }
+
+        return contextLoadingOptions;
+    }
+
+    public async setSortOrder(
+        type: string, property: string, descanding: boolean, reload: boolean = true, limit?: number
+    ): Promise<void> {
+        if (type) {
+            const sort: [string, boolean] = [property, descanding];
+            this.objectSorts.set(type, sort);
+            if (reload) {
+                await this.reloadObjectList(type, undefined, limit);
+            }
+        }
+    }
+
+    public getSort(type: string): [string, boolean] {
+        if (this.objectSorts.has(type)) {
+            const sort = this.objectSorts.get(type);
+            if (sort?.length) {
+                return sort;
+            }
+        }
+        return;
+    }
+
+    public async getSortOrder(type: string): Promise<string> {
+        if (this.objectSorts.has(type)) {
+            const sort = this.objectSorts.get(type);
+            if (sort?.length) {
+                return KIXObjectService.getSortOrder(sort[0], sort[1], type);
+            }
+        }
+
+        const contextLoadingOptions = this.getContextLoadingOptions(type);
+        let sortOrder = contextLoadingOptions?.sortOrder;
+        if (sortOrder && !sortOrder.match(/^.+\..+/)) {
+            sortOrder = type + '.' + sortOrder;
+        }
+        return sortOrder;
+    }
+
+    public supportsBackendSort(type: string): boolean {
+        return true;
+    }
+
+    public getCollectionId(): string {
+        return;
     }
 
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -33,6 +33,7 @@ import { ObjectIcon } from '../../../icon/model/ObjectIcon';
 import { RoutingConfiguration } from '../../../../model/configuration/RoutingConfiguration';
 import { ContextMode } from '../../../../model/ContextMode';
 import { SearchProperty } from '../../../search/model/SearchProperty';
+import { ObjectSearch } from '../../../object-search/model/ObjectSearch';
 
 
 export class FAQService extends KIXObjectService {
@@ -72,7 +73,7 @@ export class FAQService extends KIXObjectService {
     public async prepareFullTextFilter(searchValue: string): Promise<FilterCriteria[]> {
         const filter: FilterCriteria[] = [
             new FilterCriteria(
-                SearchProperty.FULLTEXT, SearchOperator.LIKE, FilterDataType.STRING, FilterType.AND, searchValue
+                SearchProperty.FULLTEXT, SearchOperator.LIKE, FilterDataType.STRING, FilterType.OR, `*${searchValue}*`
             )
         ];
 
@@ -138,41 +139,46 @@ export class FAQService extends KIXObjectService {
     }
 
     public async prepareObjectTree(
-        faqCategories: FAQCategory[], showInvalid: boolean = false, invalidClickable: boolean = false,
-        filterIds?: number[]
+        objects: KIXObject[], showInvalid: boolean = false, invalidClickable: boolean = false,
+        filterIds?: number[], translatable?: boolean
     ): Promise<TreeNode[]> {
-        const nodes: TreeNode[] = [];
-        if (faqCategories && !!faqCategories.length) {
-            if (!showInvalid) {
-                faqCategories = faqCategories.filter((c) => c.ValidID === 1);
-            } else if (!invalidClickable) {
-                faqCategories = faqCategories.filter(
-                    (c) => c.ValidID === 1 || this.hasValidDescendants(c.SubCategories)
-                );
-            }
+        let nodes = [];
+        if (objects?.length) {
+            if (objects[0].KIXObjectType === KIXObjectType.FAQ_CATEGORY) {
+                if (!showInvalid) {
+                    objects = objects.filter((c) => c.ValidID === 1);
+                } else if (!invalidClickable) {
+                    objects = (objects as FAQCategory[]).filter(
+                        (c) => c.ValidID === 1 || this.hasValidDescendants(c.SubCategories)
+                    );
+                }
 
-            if (filterIds && filterIds.length) {
-                faqCategories = faqCategories.filter((c) => !filterIds.some((fid) => fid === c.ID));
-            }
+                if (filterIds && filterIds.length) {
+                    objects = objects.filter((tc) => !filterIds.some((fid) => fid === tc.ObjectId));
+                }
 
-            for (const category of faqCategories) {
-                const subTree = await this.prepareObjectTree(
-                    category.SubCategories, showInvalid, invalidClickable, filterIds
-                );
+                for (const category of (objects as FAQCategory[])) {
+                    const subTree = await this.prepareObjectTree(
+                        category.SubCategories, showInvalid, invalidClickable, filterIds
+                    );
 
-                const treeNode = new TreeNode(
-                    category.ID, category.Name,
-                    new ObjectIcon(null, KIXObjectType.FAQ_CATEGORY, category.ID),
-                    null,
-                    subTree,
-                    null, null, null, null, null, null, null,
-                    invalidClickable ? true : category.ValidID === 1,
-                    undefined, undefined, undefined, undefined,
-                    category.ValidID !== 1
-                );
-                nodes.push(treeNode);
+                    const treeNode = new TreeNode(
+                        category.ID, category.Name,
+                        new ObjectIcon(null, KIXObjectType.FAQ_CATEGORY, category.ID),
+                        null,
+                        subTree,
+                        null, null, null, null, null, null, null,
+                        invalidClickable ? true : category.ValidID === 1,
+                        undefined, undefined, undefined, undefined,
+                        category.ValidID !== 1
+                    );
+                    nodes.push(treeNode);
+                }
+            } else {
+                nodes = await super.prepareObjectTree(objects, showInvalid, invalidClickable, filterIds, translatable);
             }
         }
+
         return nodes;
     }
 
@@ -225,9 +231,12 @@ export class FAQService extends KIXObjectService {
 
     public async checkFilterValue(article: FAQArticle, criteria: UIFilterCriterion): Promise<boolean> {
         let match = false;
-        if (criteria.property === FAQArticleProperty.VOTES && article && article.Votes) {
-            const rating = BrowserUtil.calculateAverage(article.Votes.map((v) => v.Rating));
+        if (criteria.property === FAQArticleProperty.VOTES) {
+            const rating = BrowserUtil.round(article?.Rating || 0);
             match = (criteria.value as []).some((v: FAQVote) => v.Rating === rating);
+        } else if (criteria.property === FAQArticleProperty.RATING) {
+            const rating = BrowserUtil.round(article?.Rating || 0);
+            match = (criteria.value as []).some((v: number) => BrowserUtil.round(v || 0) === rating);
         } else {
             match = await super.checkFilterValue(article, criteria);
         }
@@ -250,5 +259,41 @@ export class FAQService extends KIXObjectService {
             }
         }
         return [...objectProperties, ...superProperties];
+    }
+
+    public async getSortableAttributes(filtered: boolean = true
+    ): Promise<ObjectSearch[]> {
+        const supportedAttributes = await super.getSortableAttributes(filtered);
+
+        const filterList = [
+            FAQArticleProperty.CATEGORY_ID,
+            'CreatedUserIDs',
+            'FAQArticleID',
+            FAQArticleProperty.FIELD_4,
+            FAQArticleProperty.FIELD_5,
+            'LastChangedUserIDs',
+            'Visibility',
+            FAQArticleProperty.VOTES
+        ];
+        return filtered ?
+            supportedAttributes.filter((sA) => !filterList.some((fp) => fp === sA.Property)) :
+            supportedAttributes;
+    }
+
+    protected getSortAttribute(attribute: string): string {
+        switch (attribute) {
+            case FAQArticleProperty.CATEGORY_ID:
+                return FAQArticleProperty.CATEGORY;
+            case FAQArticleProperty.CHANGED_BY:
+                return KIXObjectProperty.CHANGE_BY;
+            case FAQArticleProperty.CHANGED:
+                return KIXObjectProperty.CHANGE_TIME;
+            case FAQArticleProperty.CREATED_BY:
+                return KIXObjectProperty.CREATE_BY;
+            case FAQArticleProperty.CREATED:
+                return KIXObjectProperty.CREATE_TIME;
+            default:
+        }
+        return super.getSortAttribute(attribute);
     }
 }

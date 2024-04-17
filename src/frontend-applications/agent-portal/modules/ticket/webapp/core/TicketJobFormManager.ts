@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -10,6 +10,7 @@
 import { FormFieldConfiguration } from '../../../../model/configuration/FormFieldConfiguration';
 import { FilterCriteria } from '../../../../model/FilterCriteria';
 import { KIXObjectType } from '../../../../model/kix/KIXObjectType';
+import { AbstractDynamicFormManager } from '../../../base-components/webapp/core/dynamic-form';
 import { TreeNode } from '../../../base-components/webapp/core/tree';
 import { JobProperty } from '../../../job/model/JobProperty';
 import { AbstractJobFormManager } from '../../../job/webapp/core/AbstractJobFormManager';
@@ -22,24 +23,25 @@ import { TicketSearchFormManager } from './TicketSearchFormManager';
 
 export class TicketJobFormManager extends AbstractJobFormManager {
 
-    public constructor() {
-        super();
+    public getFilterManager(): AbstractDynamicFormManager {
+        let filterManager;
         const searchDefinition = SearchService.getInstance().getSearchDefinition(KIXObjectType.TICKET);
         if (searchDefinition) {
 
             // use own manager to extend operators
-            this.filterManager = new TicketJobFilterFormManager([SearchProperty.FULLTEXT], false);
+            filterManager = new TicketJobFilterFormManager([SearchProperty.FULLTEXT], false);
 
-            this.filterManager.init = (): void => {
+            filterManager.init = (): void => {
 
                 // get extended managers on init because they could be added after filterManager was created
                 if (searchDefinition) {
-                    this.filterManager['extendedFormManager'] = [];
+                    filterManager['extendedFormManager'] = [];
                     searchDefinition.formManager.getExtendedFormManager().forEach(
-                        (m) => this.filterManager.addExtendedFormManager(m)
+                        (m) => filterManager.addExtendedFormManager(m)
                     );
                 }
             };
+            return filterManager;
         }
     }
 
@@ -75,7 +77,7 @@ class TicketJobFilterFormManager extends TicketSearchFormManager {
         switch (property) {
             case TicketProperty.QUEUE_ID:
                 const queuesHierarchy = await QueueService.getInstance().getQueuesHierarchy(false);
-                nodes = await QueueService.getInstance().prepareObjectTree(queuesHierarchy);
+                nodes = await QueueService.getInstance().prepareObjectTree(queuesHierarchy, true, true);
                 break;
             default:
                 nodes = await super.getTreeNodes(property, objectIds);

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2023 c.a.p.e. IT GmbH, https://www.cape-it.de
+ * Copyright (C) 2006-2024 KIX Service Software GmbH, https://www.kixdesk.com
  * --
  * This software comes with ABSOLUTELY NO WARRANTY. For details, see
  * the enclosed file LICENSE for license information (GPL3). If you
@@ -67,7 +67,7 @@ export class Extension extends KIXExtension implements IConfigurationExtension {
 
         const articleListWidget = new WidgetConfiguration(
             'faq-dashboard-article-widget', 'FAQ Article Widget', ConfigurationType.Widget,
-            'table-widget', 'Translatable#Overview FAQ', ['csv-export-action'],
+            'table-widget', 'Translatable#Overview FAQ', ['csv-export-action', 'faq-article-delete-action'],
             new ConfigurationDefinition('faq-dashboard-article-table-widget', ConfigurationType.TableWidget), null,
             false, false, 'kix-icon-faq', true
         );
@@ -80,26 +80,26 @@ export class Extension extends KIXExtension implements IConfigurationExtension {
         );
         configurations.push(faqCategoryExplorer);
 
-        configurations.push(
-            new ContextConfiguration(
-                this.getModuleId(), this.getModuleId(), ConfigurationType.Context,
-                this.getModuleId(),
-                [],
-                [
-                    new ConfiguredWidget(
-                        'faq-dashboard-category-explorer', 'faq-dashboard-category-explorer', null,
-                        [new UIComponentPermission('system/faq/categories', [CRUD.READ])]
-                    )
-                ],
-                [],
-                [
-                    new ConfiguredWidget(
-                        'faq-dashboard-article-widget', 'faq-dashboard-article-widget', null,
-                        [new UIComponentPermission('faq/articles', [CRUD.READ])]
-                    )
-                ]
-            )
+        const contextConfig = new ContextConfiguration(
+            this.getModuleId(), this.getModuleId(), ConfigurationType.Context,
+            this.getModuleId(),
+            [],
+            [
+                new ConfiguredWidget(
+                    'faq-dashboard-category-explorer', 'faq-dashboard-category-explorer', null,
+                    [new UIComponentPermission('system/faq/categories', [CRUD.READ])]
+                )
+            ],
+            [],
+            [
+                new ConfiguredWidget(
+                    'faq-dashboard-article-widget', 'faq-dashboard-article-widget', null,
+                    [new UIComponentPermission('faq/articles', [CRUD.READ])]
+                )
+            ]
         );
+        contextConfig.tableWidgetInstanceIds = [[KIXObjectType.FAQ_ARTICLE, 'faq-dashboard-article-widget']];
+        configurations.push(contextConfig);
 
         return configurations;
     }
